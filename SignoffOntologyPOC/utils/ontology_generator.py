@@ -1,6 +1,7 @@
 import random
 from datetime import datetime, timedelta
 from typing import Dict, List
+import uuid
 
 class OntologyGenerator:
     """Signoff Ontology Mock 데이터 생성기"""
@@ -14,9 +15,15 @@ class OntologyGenerator:
             "designers": [],
             "applications": [],
             "tasks": [],
+            "input_configs": [],
+            "jobs": [],
+            "workspaces": [],
             "results": []
         }
         self.graph = {"nodes": [], "edges": []}
+        
+        # ID Mappings for Graph Edges
+        self.id_map = {} # obj_id -> obj_type
     
     def generate(self) -> Dict:
         """전체 Ontology 생성"""
@@ -25,8 +32,7 @@ class OntologyGenerator:
         self._generate_product()
         self._generate_revisions()
         self._generate_blocks()
-        self._generate_tasks()
-        self._generate_results()
+        self._generate_tasks_chain() # Task -> Config -> Job -> Workspace -> Result
         self._generate_graph()
         
         return {
@@ -43,13 +49,15 @@ class OntologyGenerator:
     
     def _generate_product(self):
         """Product 생성 (Semantic Layer)"""
-        self.ontology["products"].append({
+        prod = {
             "product_id": self.config["product_id"],
             "product_name": f"{self.config['product_id']} Memory",
             "product_type": self.config["product_type"],
             "status": "ACTIVE",
             "created_at": datetime.now().isoformat()
-        })
+        }
+        self.ontology["products"].append(prod)
+        self.id_map[prod["product_id"]] = "Product"
     
     def _generate_revisions(self):
         """Revision 생성 (Semantic Layer)"""
@@ -60,7 +68,7 @@ class OntologyGenerator:
         
         prev_id = None
         for rev_code in self.config["active_revisions"]:
-            rev_id = f"{self.config['product_id']}-{rev_code}"
+            rev_id = f"{self.config['product_id']}_{rev_code}"
             
             # 이 Revision에서 수행할 Application 목록
             required_apps = [
@@ -68,7 +76,7 @@ class OntologyGenerator:
                 if rev_code in revs
             ]
             
-            self.ontology["revisions"].append({
+            rev = {
                 "revision_id": rev_id,
                 "product_id": self.config["product_id"],
                 "revision_code": rev_code,
@@ -76,7 +84,9 @@ class OntologyGenerator:
                 "required_applications": required_apps,
                 "previous_revision_id": prev_id,
                 "created_at": datetime.now().isoformat()
-            })
+            }
+            self.ontology["revisions"].append(rev)
+            self.id_map[rev_id] = "Revision"
             prev_id = rev_id
     
     def _generate_blocks(self):
@@ -85,19 +95,23 @@ class OntologyGenerator:
             for i, block_config in enumerate(self.config["blocks"]):
                 designer = self.ontology["designers"][i % len(self.ontology["designers"])]
                 
-                self.ontology["blocks"].append({
-                    "block_id": f"{revision['revision_id']}-{block_config['block_name']}",
+                blk_id = f"{revision['revision_id']}_{block_config['block_name']}"
+                blk = {
+                    "block_id": blk_id,
                     "revision_id": revision["revision_id"],
                     "block_name": block_config["block_name"],
                     "block_type": block_config.get("block_type", "ANALOG"),
                     "designer_id": designer["designer_id"],
                     "instance_count": block_config.get("instance_count", 1000000),
                     "created_at": datetime.now().isoformat()
-                })
+                }
+                self.ontology["blocks"].append(blk)
+                self.id_map[blk_id] = "Block"
     
-    def _generate_tasks(self):
-        """SignoffTask 생성 (Kinetic Layer)"""
-        task_id = 1
+    def _generate_tasks_chain(self):
+        """Task -> Config -> Job -> Workspace -> Result 체인 생성"""
+        task_seq = 1
+        
         status_dist = self.config.get("status_distribution", {
             "DONE": 0.70, "RUNNING": 0.15, "PENDING": 0.10, "FAILED": 0.05
         })
@@ -110,13 +124,15 @@ class OntologyGenerator:
                 pvt_conditions = self.config.get("pvt_conditions", {}).get(app_id, ["DEFAULT"])
                 
                 for pvt in pvt_conditions:
+                    # 1. Create Task
                     status = random.choices(
                         list(status_dist.keys()),
                         weights=list(status_dist.values())
                     )[0]
                     
-                    self.ontology["tasks"].append({
-                        "task_id": f"TASK-{task_id:04d}",
+                    task_id = f"TASK_{block['block_name']}_{app_id}_{revision['revision_code']}_{task_seq:03d}"
+                    task = {
+                        "task_id": task_id,
                         "revision_id": block["revision_id"],
                         "block_id": block["block_id"],
                         "app_id": app_id,
@@ -124,42 +140,85 @@ class OntologyGenerator:
                         "status": status,
                         "owner_id": block["designer_id"],
                         "created_at": self._random_date()
-                    })
-                    task_id += 1
-    
-    def _generate_results(self):
-        """Result 생성 (Dynamic Layer) - 완료된 Task만"""
-        result_id = 1
-        
-        for task in self.ontology["tasks"]:
-            if task["status"] != "DONE":
-                continue
-            
-            row_count = random.randint(500, 3000)
-            waiver_pct = random.uniform(0.75, 0.98)
-            fixed_pct = random.uniform(0.01, 0.10)
-            
-            waiver_count = int(row_count * waiver_pct)
-            fixed_count = int(row_count * fixed_pct)
-            result_count = row_count - waiver_count - fixed_count
-            
-            self.ontology["results"].append({
-                "result_id": f"RESULT-{result_id:04d}",
-                "task_id": task["task_id"],
-                "row_count": row_count,
-                "waiver_count": waiver_count,
-                "fixed_count": fixed_count,
-                "result_count": result_count,
-                "waiver_progress_pct": round((waiver_count + fixed_count) / row_count * 100, 1),
-                "comparison_summary": {
-                    "same_count": int(row_count * random.uniform(0.6, 0.8)),
-                    "diff_count": int(row_count * random.uniform(0.05, 0.15)),
-                    "new_count": int(row_count * random.uniform(0.1, 0.2)),
-                    "removed_count": int(row_count * random.uniform(0.02, 0.08))
-                },
-                "created_at": task["created_at"]
-            })
-            result_id += 1
+                    }
+                    self.ontology["tasks"].append(task)
+                    self.id_map[task_id] = "SignoffTask"
+                    task_seq += 1
+
+                    # 2. Create InputConfig (Always exists for a task)
+                    config_id = f"CFG_{task_id}"
+                    config = {
+                        "config_id": config_id,
+                        "task_id": task_id,
+                        "netlist_path": f"/data/{revision['revision_code']}/{block['block_name']}.spi",
+                        "power_definition": {"VDD": "1.2V", "VSS": "0.0V"},
+                        "validation_status": "VALID",
+                        "created_at": task["created_at"]
+                    }
+                    self.ontology["input_configs"].append(config)
+                    self.id_map[config_id] = "InputConfig"
+
+                    # 3. Create Job (If not PENDING)
+                    if status != "PENDING":
+                        job_id = f"JOB_{task_id}"
+                        job_status = status # Task status mirrors Job status for simplicity
+                        
+                        job = {
+                            "job_id": job_id,
+                            "task_id": task_id,
+                            "status": job_status,
+                            "start_time": task["created_at"],
+                            "end_time": datetime.now().isoformat() if status in ["DONE", "FAILED"] else None,
+                            "workspace_path": f"/user/{block['designer_id']}/signoff/{job_id}",
+                            "error_msg": "Memory Overflow" if status == "FAILED" else None,
+                            "created_at": task["created_at"]
+                        }
+                        self.ontology["jobs"].append(job)
+                        self.id_map[job_id] = "SignoffJob"
+                        
+                        # 4. Create Workspace
+                        ws_id = f"WS_{job_id}"
+                        ws = {
+                            "workspace_id": ws_id,
+                            "workspace_type": "LOCAL",
+                            "base_path": job["workspace_path"],
+                            "product_id": self.config["product_id"],
+                            "owner_id": block["designer_id"],
+                            "created_at": job["created_at"]
+                        }
+                        self.ontology["workspaces"].append(ws)
+                        self.id_map[ws_id] = "Workspace"
+
+                        # 5. Create Result (Only if DONE)
+                        if status == "DONE":
+                            res_id = f"RES_{job_id}"
+                            row_count = random.randint(100, 5000)
+                            waiver_pct = random.uniform(0.8, 0.99)
+                            waiver_count = int(row_count * waiver_pct)
+                            fixed_count = int((row_count - waiver_count) * 0.5)
+                            result_count = row_count - waiver_count - fixed_count
+                            
+                            res = {
+                                "result_id": res_id,
+                                "task_id": task_id,
+                                "job_id": job_id, # Link to Job
+                                "workspace_id": ws_id, # Link to Workspace
+                                "row_count": row_count,
+                                "waiver_count": waiver_count,
+                                "fixed_count": fixed_count,
+                                "result_count": result_count,
+                                "waiver_progress_pct": round((waiver_count + fixed_count) / row_count * 100, 1),
+                                "comparison_summary": {
+                                    "same_count": int(row_count * 0.9),
+                                    "diff_count": int(row_count * 0.05),
+                                    "new_count": int(row_count * 0.05),
+                                    "removed_count": 0
+                                },
+                                "created_at": job["end_time"]
+                            }
+                            self.ontology["results"].append(res)
+                            self.id_map[res_id] = "Result"
+
     
     def _generate_graph(self):
         """Cytoscape용 Graph 데이터 생성"""
@@ -182,8 +241,17 @@ class OntologyGenerator:
             self._add_node(app["app_id"], "SignoffApplication", app["app_id"])
         
         for task in self.ontology["tasks"]:
-            self._add_node(task["task_id"], "SignoffTask", task["app_id"])
-        
+            self._add_node(task["task_id"], "SignoffTask", "Task")
+            
+        for config in self.ontology["input_configs"]:
+            self._add_node(config["config_id"], "InputConfig", "Config")
+            
+        for job in self.ontology["jobs"]:
+            self._add_node(job["job_id"], "SignoffJob", "Job")
+            
+        for ws in self.ontology["workspaces"]:
+            self._add_node(ws["workspace_id"], "Workspace", "WS")
+            
         for result in self.ontology["results"]:
             self._add_node(result["result_id"], "Result", "Result")
         
@@ -199,9 +267,25 @@ class OntologyGenerator:
             self._add_edge(task["block_id"], task["task_id"], "requires_signoff_task")
             self._add_edge(task["task_id"], task["app_id"], "uses_application")
             self._add_edge(task["task_id"], task["owner_id"], "owned_by")
-        
+            
+        for config in self.ontology["input_configs"]:
+            self._add_edge(config["task_id"], config["config_id"], "uses_config")
+            
+        for job in self.ontology["jobs"]:
+            self._add_edge(job["task_id"], job["job_id"], "has_job")
+            
+        for ws in self.ontology["workspaces"]:
+            pass 
+            
+        for job in self.ontology["jobs"]:
+             # Job -> Workspace
+             ws = next((w for w in self.ontology["workspaces"] if w["base_path"] == job["workspace_path"]), None)
+             if ws:
+                 self._add_edge(job["job_id"], ws["workspace_id"], "executes_in")
+
         for result in self.ontology["results"]:
-            self._add_edge(task["task_id"], result["result_id"], "produces")
+            self._add_edge(result["job_id"], result["result_id"], "produces")
+            self._add_edge(result["result_id"], result["workspace_id"], "stored_in")
     
     def _add_node(self, node_id: str, obj_type: str, label: str):
         """Graph Node 추가"""
@@ -209,19 +293,23 @@ class OntologyGenerator:
         schema = OBJECT_SCHEMAS.get(obj_type, {})
         
         self.graph["nodes"].append({
-            "id": node_id,
-            "type": obj_type,
-            "layer": schema.get("layer", "Unknown"),
-            "label": label,
-            "color": schema.get("color", "#888888")
+            "data": {
+                "id": node_id,
+                "label": label,
+                "type": obj_type,
+                "layer": schema.get("layer", "Unknown"),
+                "color": schema.get("color", "#888888")
+            }
         })
     
     def _add_edge(self, source: str, target: str, relationship: str):
         """Graph Edge 추가"""
         self.graph["edges"].append({
-            "source": source,
-            "target": target,
-            "relationship": relationship
+            "data": {
+                "source": source,
+                "target": target,
+                "label": relationship
+            }
         })
     
     def _generate_designers(self):
@@ -233,6 +321,7 @@ class OntologyGenerator:
         ])
         for d in self.ontology["designers"]:
             d["created_at"] = datetime.now().isoformat()
+            self.id_map[d["designer_id"]] = "Designer"
     
     def _generate_applications(self):
         """SignoffApplication 생성"""
@@ -249,6 +338,7 @@ class OntologyGenerator:
                         "default_pvt_conditions": app_config.get("condition", []),
                         "created_at": datetime.now().isoformat()
                     })
+                    self.id_map[app_name] = "SignoffApplication"
     
     def _random_date(self) -> str:
         """랜덤 날짜 생성"""
