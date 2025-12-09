@@ -234,20 +234,20 @@ OBJECT_SCHEMAS = {
 # Layer 정보
 LAYERS = {
     "Semantic": {
-        "name": "Semantic Layer (의미 계층)",
-        "description": "무엇이 있는가? - 거의 변하지 않는 마스터 데이터",
+        "name": "Semantic Layer",
+        "description": "Static Master Data (Product, Block, etc.)",
         "color": "#e3f2fd",
         "objects": ["Product", "Revision", "Block", "Designer", "SignoffApplication"]
     },
     "Kinetic": {
-        "name": "Kinetic Layer (운동 계층)",
-        "description": "어떻게 실행되는가? - 상태가 변함, 프로세스 추적",
+        "name": "Kinetic Layer",
+        "description": "Execution Process (Task, Job, etc.)",
         "color": "#e8f5e9",
         "objects": ["SignoffTask", "InputConfig", "Workspace"]
     },
     "Dynamic": {
-        "name": "Dynamic Layer (동적 계층)",
-        "description": "결과는 어떤가? - 가장 자주 변함, AI 학습 대상",
+        "name": "Dynamic Layer",
+        "description": "Generated Results & Analysis",
         "color": "#fce4ec",
         "objects": ["Result", "ComparisonResult"]
     }
