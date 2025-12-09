@@ -1,14 +1,16 @@
 """
-Signoff Ontology Store - 온톨로지 상태 관리 모듈
+Signoff Ontology Store - 온톨로지 상태 관리 모듈 (Enhanced)
 """
 from datetime import datetime
-from typing import Dict, List, Optional, Any
-import json
+from typing import Dict, List, Optional, Any, Tuple
+import random
 
 class OntologyStore:
     """Signoff Ontology 객체들을 저장하고 관리하는 클래스"""
     
-    # 객체 유형별 색상 (Layer 대신 색상으로 구분)
+    # 객체 유형별 색상 및 순서 (왼쪽→오른쪽 레이어 순서)
+    OBJECT_ORDER = ["Product", "Revision", "Block", "Designer", "SignoffApp", "Task", "Job", "Result"]
+    
     COLORS = {
         "Product": "#4263eb",      # 파란색 - 기준 데이터
         "Revision": "#5c7cfa", 
@@ -40,7 +42,7 @@ class OntologyStore:
         """Product 추가 (중복 방지)"""
         new_id = f"PROD_{name}"
         if any(p["id"] == new_id for p in self.products):
-            return None  # 중복
+            return None
         
         product = {
             "id": new_id,
@@ -59,7 +61,7 @@ class OntologyStore:
         
         new_id = f"{product_id}_{name}"
         if any(r["id"] == new_id for r in self.revisions):
-            return None  # 중복
+            return None
             
         revision = {
             "id": new_id,
@@ -79,7 +81,7 @@ class OntologyStore:
         
         new_id = f"{revision_id}_{name}"
         if any(b["id"] == new_id for b in self.blocks):
-            return None  # 중복
+            return None
             
         block = {
             "id": new_id,
@@ -95,7 +97,7 @@ class OntologyStore:
         """Designer 추가 (중복 방지)"""
         new_id = f"USER_{name}"
         if any(d["id"] == new_id for d in self.designers):
-            return None  # 중복
+            return None
         
         designer = {
             "id": new_id,
@@ -110,7 +112,7 @@ class OntologyStore:
         """Signoff Application 추가 (중복 방지)"""
         new_id = f"APP_{name}"
         if any(a["id"] == new_id for a in self.signoff_apps):
-            return None  # 중복
+            return None
         
         app = {
             "id": new_id,
@@ -131,7 +133,7 @@ class OntologyStore:
         
         new_id = f"TASK_{block_id}_{app_id}"
         if any(t["id"] == new_id for t in self.tasks):
-            return None  # 중복
+            return None
             
         task = {
             "id": new_id,
@@ -167,9 +169,14 @@ class OntologyStore:
         job = next((j for j in self.jobs if j["id"] == job_id), None)
         if not job:
             return None
+        
+        # 중복 체크
+        new_id = f"RES_{job_id}"
+        if any(r["id"] == new_id for r in self.results):
+            return None
             
         result = {
-            "id": f"RES_{job_id}",
+            "id": new_id,
             "job_id": job_id,
             "violation_count": violation_count,
             "waiver_count": waiver_count,
@@ -180,73 +187,127 @@ class OntologyStore:
         self.results.append(result)
         job["status"] = "완료"
         
-        # Task도 완료 처리
         task = next((t for t in self.tasks if t["id"] == job["task_id"]), None)
         if task:
             task["status"] = "완료"
             
         return result
     
-    # ===== Template Data =====
+    # ===== Template Data (3 Levels) =====
     
-    def load_template(self):
-        """샘플 HBM4E Signoff 시나리오 로드"""
+    def load_template(self, level: str = "medium"):
+        """샘플 데이터 로드 (simple/medium/complex)"""
         self.clear_all()
         
-        # Products
+        if level == "simple":
+            self._load_simple()
+        elif level == "complex":
+            self._load_complex()
+        else:
+            self._load_medium()
+    
+    def _load_simple(self):
+        """Simple: 1 Product, 1 Rev, 2 Blocks, 2 Apps"""
         self.add_product("HBM4E")
+        self.add_revision("PROD_HBM4E", "R30")
         
-        # Revisions
+        self.add_block("PROD_HBM4E_R30", "FULLCHIP_NO_CORE")
+        self.add_block("PROD_HBM4E_R30", "PAD")
+        
+        self.add_designer("최원우")
+        
+        self.add_signoff_app("STA")
+        self.add_signoff_app("LVS")
+        
+        # 4 Tasks
+        for block in self.blocks:
+            for app in self.signoff_apps:
+                self.add_task(block["id"], app["id"], "USER_최원우")
+    
+    def _load_medium(self):
+        """Medium: 1 Product, 2 Revs, 4 Blocks, 4 Apps"""
+        self.add_product("HBM4E")
         self.add_revision("PROD_HBM4E", "R30")
         self.add_revision("PROD_HBM4E", "R60")
         
-        # Blocks
         for rev in ["R30", "R60"]:
-            self.add_block(f"PROD_HBM4E_{rev}", "PHY")
-            self.add_block(f"PROD_HBM4E_{rev}", "Core")
-            self.add_block(f"PROD_HBM4E_{rev}", "IO")
+            self.add_block(f"PROD_HBM4E_{rev}", "FULLCHIP_NO_CORE")
+            self.add_block(f"PROD_HBM4E_{rev}", "PAD")
         
-        # Designers
-        self.add_designer("김철수")
-        self.add_designer("이영희")
-        self.add_designer("박준호")
+        self.add_designer("최원우")
+        self.add_designer("김광선")
+        self.add_designer("서형중")
         
-        # Signoff Apps
         self.add_signoff_app("STA")
         self.add_signoff_app("LVS")
         self.add_signoff_app("DRC")
         self.add_signoff_app("Power")
         
-        # Tasks (Block + App 조합)
-        designers = ["USER_김철수", "USER_이영희", "USER_박준호"]
-        import random
+        designers = ["USER_최원우", "USER_김광선", "USER_서형중"]
         
-        for block in self.blocks[:3]:  # R30 blocks만
+        # Tasks for R30 blocks
+        for block in [b for b in self.blocks if "R30" in b["id"]]:
             for app in self.signoff_apps:
-                designer = random.choice(designers)
-                self.add_task(block["id"], app["id"], designer)
+                self.add_task(block["id"], app["id"], random.choice(designers))
         
-        # Jobs & Results (일부만)
+        # Some Jobs and Results
         for task in self.tasks[:6]:
             job = self.add_job(task["id"])
             if job:
-                self.add_result(job["id"], 
-                    violation_count=random.randint(10, 100),
-                    waiver_count=random.randint(0, 50))
+                self.add_result(job["id"], random.randint(10, 100), random.randint(0, 30))
+    
+    def _load_complex(self):
+        """Complex: 2 Products, 4 Revs, 12 Blocks, 6 Apps"""
+        # Products
+        self.add_product("HBM4E")
+        self.add_product("DDR5")
+        
+        # Revisions
+        for prod in ["HBM4E", "DDR5"]:
+            self.add_revision(f"PROD_{prod}", "R30")
+            self.add_revision(f"PROD_{prod}", "R60")
+        
+        # Blocks
+        block_names = ["FULLCHIP", "PAD", "IO"]
+        for rev in self.revisions:
+            for bn in block_names:
+                self.add_block(rev["id"], bn)
+        
+        # Designers
+        for name in ["최원우", "김광선", "서형중", "김진호", "이정훈"]:
+            self.add_designer(name)
+        
+        # Apps
+        for app in ["STA", "LVS", "DRC", "Power", "IR-Drop", "EM"]:
+            self.add_signoff_app(app)
+        
+        designers = [d["id"] for d in self.designers]
+        
+        # Tasks (all blocks x all apps = many tasks)
+        for block in self.blocks:
+            for app in self.signoff_apps:
+                self.add_task(block["id"], app["id"], random.choice(designers))
+        
+        # Jobs and Results for about half
+        for task in self.tasks[:len(self.tasks)//2]:
+            job = self.add_job(task["id"])
+            if job:
+                self.add_result(job["id"], random.randint(5, 200), random.randint(0, 50))
     
     # ===== Graph Generation =====
     
-    def to_graph_elements(self) -> List[Dict]:
+    def to_graph_elements(self, layout_type: str = "cose") -> List[Dict]:
         """Cytoscape 그래프 요소 생성"""
         elements = []
         
-        def add_node(obj: Dict):
+        def add_node(obj: Dict, layer_idx: int = 0):
             elements.append({
                 "data": {
                     "id": obj["id"],
-                    "label": obj["name"] if "name" in obj else obj["id"].split("_")[-1],
+                    "label": obj.get("name", obj["id"].split("_")[-1]),
                     "type": obj["type"],
-                    "color": self.COLORS.get(obj["type"], "#868e96")
+                    "color": self.COLORS.get(obj["type"], "#868e96"),
+                    "layer": layer_idx  # For layered layout
                 }
             })
         
@@ -259,33 +320,63 @@ class OntologyStore:
                 }
             })
         
-        # Nodes
+        # Nodes with layer index
         for p in self.products:
-            add_node(p)
+            add_node(p, 0)
         for r in self.revisions:
-            add_node(r)
+            add_node(r, 1)
             add_edge(r["product_id"], r["id"], "버전")
         for b in self.blocks:
-            add_node(b)
+            add_node(b, 2)
             add_edge(b["revision_id"], b["id"], "블록")
         for d in self.designers:
-            add_node(d)
+            add_node(d, 3)
         for a in self.signoff_apps:
-            add_node(a)
+            add_node(a, 4)
         for t in self.tasks:
-            add_node(t)
+            add_node(t, 5)
             add_edge(t["block_id"], t["id"], "검증")
             add_edge(t["id"], t["app_id"], "도구")
             if t.get("designer_id"):
                 add_edge(t["id"], t["designer_id"], "담당")
         for j in self.jobs:
-            add_node(j)
+            add_node(j, 6)
             add_edge(j["task_id"], j["id"], "실행")
         for r in self.results:
-            add_node(r)
+            add_node(r, 7)
             add_edge(r["job_id"], r["id"], "결과")
             
         return elements
+    
+    def get_layered_positions(self) -> Dict[str, Dict]:
+        """계층형 레이아웃을 위한 노드 위치 계산"""
+        positions = {}
+        layer_x = {i: 150 * i for i in range(8)}  # 각 레이어의 X 좌표
+        layer_counts = {i: 0 for i in range(8)}
+        
+        def set_pos(obj_id: str, layer: int):
+            y = 80 * layer_counts[layer]
+            positions[obj_id] = {"x": layer_x[layer], "y": y}
+            layer_counts[layer] += 1
+        
+        for p in self.products:
+            set_pos(p["id"], 0)
+        for r in self.revisions:
+            set_pos(r["id"], 1)
+        for b in self.blocks:
+            set_pos(b["id"], 2)
+        for d in self.designers:
+            set_pos(d["id"], 3)
+        for a in self.signoff_apps:
+            set_pos(a["id"], 4)
+        for t in self.tasks:
+            set_pos(t["id"], 5)
+        for j in self.jobs:
+            set_pos(j["id"], 6)
+        for r in self.results:
+            set_pos(r["id"], 7)
+            
+        return positions
     
     # ===== Data Export =====
     
@@ -304,16 +395,92 @@ class OntologyStore:
     
     def get_statistics(self) -> Dict[str, int]:
         """통계 정보 반환"""
+        completed = len([t for t in self.tasks if t["status"] == "완료"])
+        running = len([t for t in self.tasks if t["status"] == "실행중"])
+        pending = len([t for t in self.tasks if t["status"] == "대기중"])
+        
         return {
-            "제품 수": len(self.products),
-            "리비전 수": len(self.revisions),
-            "블록 수": len(self.blocks),
-            "담당자 수": len(self.designers),
-            "검증 도구 수": len(self.signoff_apps),
-            "Task 수": len(self.tasks),
-            "Job 수": len(self.jobs),
-            "Result 수": len(self.results)
+            "제품": len(self.products),
+            "리비전": len(self.revisions),
+            "블록": len(self.blocks),
+            "담당자": len(self.designers),
+            "검증도구": len(self.signoff_apps),
+            "Task": len(self.tasks),
+            "Job": len(self.jobs),
+            "Result": len(self.results),
+            "완료": completed,
+            "실행중": running,
+            "대기중": pending
         }
+    
+    # ===== Search =====
+    
+    def search(self, query: str, obj_type: Optional[str] = None) -> List[Dict]:
+        """키워드 검색"""
+        results = []
+        query_lower = query.lower()
+        
+        all_objects = (
+            self.products + self.revisions + self.blocks + 
+            self.designers + self.signoff_apps + 
+            self.tasks + self.jobs + self.results
+        )
+        
+        for obj in all_objects:
+            if obj_type and obj.get("type") != obj_type:
+                continue
+            
+            # ID나 name에서 검색
+            if query_lower in obj.get("id", "").lower():
+                results.append(obj)
+            elif query_lower in obj.get("name", "").lower():
+                results.append(obj)
+                
+        return results
+    
+    def get_related_objects(self, obj_id: str) -> Dict[str, List[Dict]]:
+        """특정 객체와 연결된 모든 객체 조회"""
+        related = {"upstream": [], "downstream": []}
+        
+        # Find the object
+        obj = None
+        for lst in [self.products, self.revisions, self.blocks, self.designers, 
+                    self.signoff_apps, self.tasks, self.jobs, self.results]:
+            obj = next((o for o in lst if o["id"] == obj_id), None)
+            if obj:
+                break
+        
+        if not obj:
+            return related
+        
+        obj_type = obj.get("type")
+        
+        # Upstream (parents)
+        if obj_type == "Revision":
+            related["upstream"] = [p for p in self.products if p["id"] == obj.get("product_id")]
+        elif obj_type == "Block":
+            related["upstream"] = [r for r in self.revisions if r["id"] == obj.get("revision_id")]
+        elif obj_type == "Task":
+            related["upstream"] = [b for b in self.blocks if b["id"] == obj.get("block_id")]
+            related["upstream"] += [a for a in self.signoff_apps if a["id"] == obj.get("app_id")]
+        elif obj_type == "Job":
+            related["upstream"] = [t for t in self.tasks if t["id"] == obj.get("task_id")]
+        elif obj_type == "Result":
+            related["upstream"] = [j for j in self.jobs if j["id"] == obj.get("job_id")]
+        
+        # Downstream (children)
+        if obj_type == "Product":
+            related["downstream"] = [r for r in self.revisions if r.get("product_id") == obj_id]
+        elif obj_type == "Revision":
+            related["downstream"] = [b for b in self.blocks if b.get("revision_id") == obj_id]
+        elif obj_type == "Block":
+            related["downstream"] = [t for t in self.tasks if t.get("block_id") == obj_id]
+        elif obj_type == "Task":
+            related["downstream"] = [j for j in self.jobs if j.get("task_id") == obj_id]
+        elif obj_type == "Job":
+            related["downstream"] = [r for r in self.results if r.get("job_id") == obj_id]
+            
+        return related
     
     # ===== Dropdown Options =====
     
@@ -324,7 +491,19 @@ class OntologyStore:
         return [{"value": r["id"], "label": f"{r['product_id'].replace('PROD_', '')} / {r['name']}"} for r in self.revisions]
     
     def get_block_options(self) -> List[Dict]:
-        return [{"value": b["id"], "label": b["name"]} for b in self.blocks]
+        """Block 옵션 (PRODUCT/REVISION/BLOCK 형식)"""
+        options = []
+        for b in self.blocks:
+            # Extract product and revision from block's revision_id
+            rev = next((r for r in self.revisions if r["id"] == b["revision_id"]), None)
+            if rev:
+                prod_name = rev["product_id"].replace("PROD_", "")
+                rev_name = rev["name"]
+                label = f"{prod_name}/{rev_name}/{b['name']}"
+            else:
+                label = b["name"]
+            options.append({"value": b["id"], "label": label})
+        return options
     
     def get_app_options(self) -> List[Dict]:
         return [{"value": a["id"], "label": a["name"]} for a in self.signoff_apps]
@@ -337,6 +516,9 @@ class OntologyStore:
     
     def get_job_options(self) -> List[Dict]:
         return [{"value": j["id"], "label": j["id"]} for j in self.jobs if j["status"] != "완료"]
+    
+    def get_type_options(self) -> List[Dict]:
+        return [{"value": t, "label": t} for t in self.OBJECT_ORDER]
 
 
 # Global instance
