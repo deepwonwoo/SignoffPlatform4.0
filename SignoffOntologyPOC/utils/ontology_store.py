@@ -243,8 +243,8 @@ class OntologyStore:
         self.add_block("PROD_HBM4E_R30", "FULLCHIP_NO_CORE")
         self.add_block("PROD_HBM4E_R30", "PAD")
         self.add_designer("최원우")
-        self.add_signoff_app("STA")
-        self.add_signoff_app("LVS")
+        self.add_signoff_app("DSC")
+        self.add_signoff_app("PEC")
         for block in self.blocks:
             for app in self.signoff_apps:
                 self.add_task(block["id"], app["id"], "USER_최원우")
@@ -256,9 +256,9 @@ class OntologyStore:
         for rev in ["R30", "R60"]:
             self.add_block(f"PROD_HBM4E_{rev}", "FULLCHIP_NO_CORE")
             self.add_block(f"PROD_HBM4E_{rev}", "PAD")
-        for name in ["최원우", "김광선", "서형중"]:
+        for name in ["최원우", "김광선", "서형중", "권민지"]:
             self.add_designer(name)
-        for app in ["STA", "LVS", "DRC", "Power"]:
+        for app in ["DSC", "PEC", "LS", "LSC"]:
             self.add_signoff_app(app)
         designers = [d["id"] for d in self.designers]
         for block in [b for b in self.blocks if "R30" in b["id"]]:
@@ -280,9 +280,9 @@ class OntologyStore:
         for rev in self.revisions:
             for bn in ["FULLCHIP", "PAD", "IO"]:
                 self.add_block(rev["id"], bn)
-        for name in ["최원우", "김광선", "서형중", "김진호", "이정훈"]:
+        for name in ["최원우", "김광선", "서형중", "권민지", "유창우"]:
             self.add_designer(name)
-        for app in ["STA", "LVS", "DRC", "Power", "IR-Drop", "EM"]:
+        for app in ["DSC", "PEC", "LS", "LSC", "CANATR", "PN-Ratio"]:
             self.add_signoff_app(app)
         designers = [d["id"] for d in self.designers]
         for block in self.blocks:
@@ -303,9 +303,9 @@ class OntologyStore:
         for rev in self.revisions:
             for bn in ["FULLCHIP", "CORE", "IO", "PHY", "PAD"]:
                 self.add_block(rev["id"], bn)
-        for name in ["최원우", "김광선", "서형중", "김진호", "이정훈", "박민수"]:
+        for name in ["최원우", "김광선", "서형중", "권민지", "유창우", "오지은"]:
             self.add_designer(name)
-        for app in ["DSC", "LSC", "LS", "PEC", "PN-Ratio", "IR-Drop"]:
+        for app in ["DSC", "PEC", "LS", "LSC", "CANATR", "PN-Ratio", "DriverKeeper", "CDA", "FloatNode"]:
             self.add_signoff_app(app)
         designers = [d["id"] for d in self.designers]
         for block in self.blocks:
