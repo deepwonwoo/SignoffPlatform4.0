@@ -79,6 +79,7 @@ platformdirs==4.4.0
 playwright==1.42.0
 plotly==6.3.1
 pluggy==1.6.0
+pyarrow==19.0.1
 polars==1.34.0
 polars-runtime-32==1.34.0
 prompt_toolkit==3.0.52
