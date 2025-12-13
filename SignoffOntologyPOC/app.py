@@ -883,7 +883,7 @@ def export_json(n_clicks):
     
     json_str = store.to_json()
     if not json_str:
-        return None
+        return None 
     
     return dict(content=json_str, filename="signoff_ontology_graph.json")
 

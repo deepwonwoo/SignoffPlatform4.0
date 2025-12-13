@@ -39,7 +39,7 @@ HBM_CONFIG_TEMPLATE = {
     "active_revisions": ["R30"],
     "blocks": [
         {"block_name": "FULLCHIP", "block_type": "TOP", "instance_count": 50000000},
-        {"block_name": "IO", "block_type": "PHY", "instance_count": 2000000},
+        {"block_name": "IO", "block_type": "FULLCHIP_NO_CORE", "instance_count": 2000000},
         {"block_name": "SRAM_A", "block_type": "MEMORY", "instance_count": 500000},
         {"block_name": "CORE", "block_type": "DIGITAL", "instance_count": 10000000},
     ],
