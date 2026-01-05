@@ -1,20 +1,28 @@
 """
-Signoff Ontology POC - Enhanced Interactive Builder
+Signoff Ontology POC - Dash App
+5개 페이지: Builder, Graph, Explorer, Dashboard, Compare
+
+Based on: updated_Signoff Platform Ontology.md
 """
 import dash
-from dash import dcc, html, Input, Output, State, callback, ALL
+from dash import dcc, html, Input, Output, State, callback, ALL, ctx
 import dash_mantine_components as dmc
 import dash_cytoscape as cyto
 import pandas as pd
 import json
+from datetime import datetime
 
 from utils.ontology_store import store
 
 # --- App Setup ---
-app = dash.Dash(__name__, external_stylesheets=dmc.styles.ALL, suppress_callback_exceptions=True)
+app = dash.Dash(
+    __name__, 
+    external_stylesheets=dmc.styles.ALL, 
+    suppress_callback_exceptions=True
+)
 app.title = "Signoff Ontology POC"
 
-# --- Stylesheet ---
+# --- Graph Stylesheet ---
 graph_stylesheet = [
     {
         'selector': 'node',
@@ -24,41 +32,30 @@ graph_stylesheet = [
             'background-color': 'data(color)',
             'text-valign': 'center',
             'text-halign': 'center',
-            'width': '100px',
-            'height': '40px',
+            'font-size': '10px',
+            'width': '60px',
+            'height': '30px',
             'shape': 'round-rectangle',
-            'font-family': 'Pretendard, sans-serif',
-            'font-size': '11px',
             'border-width': 2,
-            'border-color': '#fff'
+            'border-color': '#343a40',
         }
     },
     {
         'selector': 'edge',
         'style': {
-            'label': 'data(label)',
-            'color': '#adb5bd',
-            'line-color': '#ced4da',
-            'target-arrow-color': '#ced4da',
+            'width': 1.5,
+            'line-color': '#adb5bd',
+            'target-arrow-color': '#adb5bd',
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
-            'font-size': '9px',
-            'width': 1.5
+            'arrow-scale': 0.8
         }
     },
     {
         'selector': ':selected',
         'style': {
             'border-width': 4,
-            'border-color': '#fab005'
-        }
-    },
-    {
-        'selector': '.highlighted',
-        'style': {
-            'border-width': 4,
             'border-color': '#ff6b6b',
-            'background-color': '#ff8787'
         }
     }
 ]
@@ -66,336 +63,272 @@ graph_stylesheet = [
 # --- Sidebar ---
 def create_sidebar():
     return dmc.Stack([
-        dmc.Group([
-            dmc.Text("🧠", size="xl"),
-            dmc.Text("Signoff Ontology", size="lg", fw=700)
-        ], mb=10),
-        dmc.Text("POC Demo App", size="xs", c="dimmed", mb=15),
-        dmc.Divider(mb=10),
+        dmc.Title("Signoff Ontology", order=3, c="white"),
+        dmc.Text("POC Demo", size="sm", c="dimmed"),
+        dmc.Divider(my="md"),
         
-        dmc.NavLink(label="온톨로지 빌더", leftSection="🔧", href="/", id="nav-builder"),
-        dmc.NavLink(label="온톨로지 맵", leftSection="🗺️", href="/map", id="nav-map"),
-        dmc.NavLink(label="분석 대시보드", leftSection="📈", href="/analysis", id="nav-analysis"),
-        dmc.NavLink(label="데이터 탐색기", leftSection="📊", href="/explorer", id="nav-explorer"),
-        
-        dmc.Divider(my=15),
-        dmc.Text("샘플 데이터", size="sm", c="dimmed", mb=5),
-        dmc.SegmentedControl(
-            id="template-level",
-            value="medium",
-            data=[
-                {"value": "simple", "label": "Simple"},
-                {"value": "medium", "label": "Medium"},
-                {"value": "complex", "label": "Complex"},
-                {"value": "full", "label": "Full"},
-            ],
-            fullWidth=True,
-            size="xs",
-            mb=10
-        ),
-        dmc.Button("샘플 데이터 로드", id="btn-load-template", variant="light", color="blue", fullWidth=True, mb=5),
-        dmc.Button("전체 삭제", id="btn-clear-all", variant="outline", color="red", fullWidth=True, size="xs"),
-        
-        dmc.Divider(my=15),
-        html.Div(id="sidebar-stats")
-    ], h="100%", p="md")
-
-# --- Builder Page ---
-def create_builder_page():
-    return dmc.Stack([
-        dmc.Title("온톨로지 빌더", order=2, mb="sm"),
-        dmc.Text("Signoff 온톨로지 객체를 직접 생성하고 연결합니다.", c="dimmed", mb="md"),
-        
-        dmc.Grid([
-            dmc.GridCol([
-                dmc.Accordion([
-                    dmc.AccordionItem([
-                        dmc.AccordionControl("1️⃣ Product (제품)"),
-                        dmc.AccordionPanel([
-                            dmc.TextInput(label="제품 이름", placeholder="예: HBM4E", id="input-product-name"),
-                            dmc.Button("생성", id="btn-add-product", color="blue", mt="sm", fullWidth=True)
-                        ])
-                    ], value="product"),
-                    
-                    dmc.AccordionItem([
-                        dmc.AccordionControl("2️⃣ Revision (버전)"),
-                        dmc.AccordionPanel([
-                            dmc.Select(label="Product 선택", id="select-product-for-rev", data=[]),
-                            dmc.TextInput(label="버전 이름", placeholder="예: R30", id="input-revision-name", mt="sm"),
-                            dmc.Button("생성", id="btn-add-revision", color="blue", mt="sm", fullWidth=True)
-                        ])
-                    ], value="revision"),
-                    
-                    dmc.AccordionItem([
-                        dmc.AccordionControl("3️⃣ Block (설계 블록)"),
-                        dmc.AccordionPanel([
-                            dmc.Select(label="Revision 선택", id="select-revision-for-block", data=[]),
-                            dmc.TextInput(label="블록 이름", placeholder="예: FULLCHIP_NO_CORE, PAD", id="input-block-name", mt="sm"),
-                            dmc.Button("생성", id="btn-add-block", color="blue", mt="sm", fullWidth=True)
-                        ])
-                    ], value="block"),
-                    
-                    dmc.AccordionItem([
-                        dmc.AccordionControl("4️⃣ Designer & App"),
-                        dmc.AccordionPanel([
-                            dmc.Grid([
-                                dmc.GridCol([
-                                    dmc.TextInput(label="담당자", placeholder="예: 최원우", id="input-designer-name"),
-                                    dmc.Button("등록", id="btn-add-designer", color="violet", mt="sm", size="sm", fullWidth=True)
-                                ], span=6),
-                                dmc.GridCol([
-                                    dmc.TextInput(label="검증 도구", placeholder="예: DSC", id="input-app-name"),
-                                    dmc.Button("등록", id="btn-add-app", color="teal", mt="sm", size="sm", fullWidth=True)
-                                ], span=6),
-                            ])
-                        ])
-                    ], value="designer-app"),
-                    
-                    dmc.AccordionItem([
-                        dmc.AccordionControl("5️⃣ Task (검증 작업)"),
-                        dmc.AccordionPanel([
-                            dmc.Select(label="Block", id="select-block-for-task", data=[]),
-                            dmc.Select(label="App", id="select-app-for-task", data=[], mt="sm"),
-                            dmc.Select(label="담당자", id="select-designer-for-task", data=[], mt="sm", placeholder="(선택)"),
-                            dmc.Button("Task 생성", id="btn-add-task", color="green", mt="sm", fullWidth=True)
-                        ])
-                    ], value="task"),
-                    
-                    dmc.AccordionItem([
-                        dmc.AccordionControl("6️⃣ Job & Result"),
-                        dmc.AccordionPanel([
-                            dmc.Select(label="Task", id="select-task-for-job", data=[]),
-                            dmc.Button("Job 실행", id="btn-add-job", color="orange", mt="sm", fullWidth=True),
-                            dmc.Divider(my="sm"),
-                            dmc.Select(label="완료할 Job", id="select-job-for-result", data=[]),
-                            dmc.Group([
-                                dmc.NumberInput(label="Violation", id="input-violation-count", value=0, min=0, w=100),
-                                dmc.NumberInput(label="Waiver", id="input-waiver-count", value=0, min=0, w=100),
-                            ]),
-                            dmc.Button("Result 생성", id="btn-add-result", color="orange", mt="sm", fullWidth=True),
-                        ])
-                    ], value="job-result"),
-                ], value="product", chevronPosition="right", variant="separated")
-            ], span=5),
-            
-            dmc.GridCol([
-                dmc.Paper([
-                    dmc.Title("실시간 미리보기", order=4, mb="sm"),
-                    cyto.Cytoscape(
-                        id='builder-graph',
-                        layout={'name': 'cose', 'animate': True, 'nodeRepulsion': 8000},
-                        style={'width': '100%', 'height': '550px'},
-                        elements=[],
-                        stylesheet=graph_stylesheet
-                    )
-                ], p="md", withBorder=True, shadow="sm")
-            ], span=7),
-        ]),
-        
-        html.Div(id="notification-area")
-    ])
-
-# --- Map Page ---
-def create_map_page():
-    return dmc.Stack([
-        dmc.Group([
-            dmc.Group([
-                dmc.Title("온톨로지 맵", order=2),
-                dmc.Badge("전체 구조 시각화", color="blue", variant="light")
-            ]),
-            dmc.Group([
-                dmc.Button("CSV", id="btn-export-csv", variant="light", size="xs", leftSection="📄"),
-                dmc.Button("JSON", id="btn-export-json", variant="light", size="xs", color="teal", leftSection="🔗"),
-                dmc.Button("Parquet", id="btn-export-parquet", variant="light", size="xs", color="violet", leftSection="📊"),
-            ], gap="xs")
-        ], justify="space-between", mb="md"),
-        
-        # Controls
-        dmc.Paper([
-            dmc.Grid([
-                dmc.GridCol([
-                    dmc.Select(
-                        label="레이아웃",
-                        id="map-layout-select",
-                        value="layered",
-                        data=[
-                            {"value": "layered", "label": "📊 계층형 (Layered)"},
-                            {"value": "cose", "label": "🔄 자동 배치 (CoSE)"},
-                            {"value": "breadthfirst", "label": "🌳 트리형 (Breadthfirst)"},
-                            {"value": "circle", "label": "⭕ 원형 (Circle)"},
-                            {"value": "grid", "label": "📐 격자형 (Grid)"},
-                        ]
-                    )
-                ], span=2),
-                dmc.GridCol([
-                    dmc.Select(
-                        label="객체 유형 필터",
-                        id="map-type-filter",
-                        placeholder="전체",
-                        data=store.get_type_options(),
-                        clearable=True
-                    )
-                ], span=2),
-                dmc.GridCol([
-                    dmc.Select(
-                        label="Product 필터",
-                        id="map-product-filter",
-                        placeholder="전체",
-                        data=store.get_product_options(),
-                        clearable=True
-                    )
-                ], span=2),
-                dmc.GridCol([
-                    dmc.Select(
-                        label="상태 필터",
-                        id="map-status-filter",
-                        placeholder="전체",
-                        data=[
-                            {"value": "대기중", "label": "대기중"},
-                            {"value": "실행중", "label": "실행중"},
-                            {"value": "완료", "label": "완료"},
-                        ],
-                        clearable=True
-                    )
-                ], span=2),
-                dmc.GridCol([
-                    # Legend
-                    dmc.Group([
-                        dmc.Badge("Product", color="blue", size="xs"),
-                        dmc.Badge("Block", color="indigo", size="xs"),
-                        dmc.Badge("Task", color="teal", size="xs"),
-                        dmc.Badge("Result", color="orange", size="xs"),
-                    ], gap="xs", mt=25)
-                ], span=4),
-            ])
-        ], p="sm", withBorder=True, mb="md"),
-        
-        dmc.Grid([
-            dmc.GridCol([
-                dmc.Paper([
-                    cyto.Cytoscape(
-                        id='map-graph',
-                        layout={'name': 'preset'},
-                        style={'width': '100%', 'height': '650px'},
-                        elements=[],
-                        stylesheet=graph_stylesheet
-                    )
-                ], p="md", withBorder=True, shadow="sm")
-            ], span=9),
-            
-            dmc.GridCol([
-                dmc.Paper([
-                    dmc.Title("노드 상세", order=4, mb="md"),
-                    html.Div(id="map-node-details", children=dmc.Text("노드를 클릭하세요", c="dimmed"))
-                ], p="md", withBorder=True),
-                
-                dmc.Paper([
-                    dmc.Title("연결된 객체", order=5, mb="sm"),
-                    html.Div(id="map-related-objects")
-                ], p="md", withBorder=True, mt="md")
-            ], span=3)
-        ])
-    ])
-
-# --- Explorer Page ---
-def create_explorer_page():
-    return dmc.Stack([
-        dmc.Group([
-            dmc.Title("데이터 탐색기", order=2),
-            dmc.TextInput(
-                id="explorer-search",
-                placeholder="검색어 입력...",
-                size="xs",
-                w=200
-            )
-        ], justify="space-between", mb="md"),
-        
-        # Stats Cards
-        html.Div(id="explorer-stats"),
+        # Navigation
+        dmc.NavLink(label="🏗️ Builder", href="/", active=True, id="nav-builder"),
+        dmc.NavLink(label="🗺️ Graph", href="/graph", id="nav-graph"),
+        dmc.NavLink(label="📊 Explorer", href="/explorer", id="nav-explorer"),
+        dmc.NavLink(label="📈 Dashboard", href="/dashboard", id="nav-dashboard"),
+        dmc.NavLink(label="🔄 Compare", href="/compare", id="nav-compare"),
         
         dmc.Divider(my="md"),
         
-        html.Div(id="explorer-content")
-    ])
-
-# --- Analysis Page ---
-def create_analysis_page():
-    """분석 대시보드 페이지"""
-    return dmc.Stack([
-        dmc.Group([
-            dmc.Title("분석 대시보드", order=2),
-            dmc.Badge("Signoff 현황 분석", color="violet", variant="light")
-        ], justify="space-between", mb="md"),
+        # Scenario Buttons
+        dmc.Text("Mock 데이터 시나리오", size="sm", fw=600, c="dimmed"),
+        dmc.Button("A. Full Lifecycle (R00→R60)", id="btn-scenario-a", variant="light", fullWidth=True, mb="xs"),
+        dmc.Button("B. R40 상세 (5 Apps)", id="btn-scenario-b", variant="light", fullWidth=True, mb="xs"),
+        dmc.Button("C. R30→R40 Compare", id="btn-scenario-c", variant="light", fullWidth=True, mb="xs"),
+        dmc.Button("Clear All", id="btn-clear", variant="outline", color="red", fullWidth=True, mt="md"),
         
-        dmc.Tabs([
-            dmc.TabsList([
-                dmc.TabsTab("📊 Progress Dashboard", value="progress"),
-                dmc.TabsTab("⚠️ Critical Path", value="critical"),
-                dmc.TabsTab("⏱️ Timeline", value="timeline"),
-                dmc.TabsTab("🔍 Advanced Query", value="query"),
-            ]),
+        dmc.Divider(my="md"),
+        
+        # Statistics
+        html.Div(id="sidebar-stats"),
+        
+        dmc.Divider(my="md"),
+        
+        # Export Buttons
+        dmc.Text("Export", size="sm", fw=600, c="dimmed"),
+        dmc.Button("📥 JSON (GraphRAG)", id="btn-export-json", variant="subtle", fullWidth=True, size="xs"),
+        dcc.Download(id="download-json"),
+        
+    ], gap="xs", p="md", style={"height": "100vh", "backgroundColor": "#1a1b1e"})
+
+
+# --- Page: Builder ---
+def create_builder_page():
+    return dmc.Container([
+        dmc.Title("🏗️ Ontology Builder", order=2, mb="lg"),
+        dmc.Text("10개 핵심 Object Type을 인터랙티브하게 생성합니다.", c="dimmed", mb="xl"),
+        
+        dmc.Grid([
+            # Column 1: Product, Revision, Block
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("Product", fw=600),
+                    dmc.TextInput(id="input-product-id", placeholder="Product ID (예: HBM4E)", mb="xs"),
+                    dmc.TextInput(id="input-product-name", placeholder="Product Name", mb="xs"),
+                    dmc.Button("➕ Add Product", id="btn-add-product", size="xs", fullWidth=True),
+                ], withBorder=True, p="md", mb="md"),
+                
+                dmc.Card([
+                    dmc.Text("Revision", fw=600),
+                    dmc.Select(id="select-product-for-rev", placeholder="Select Product", data=[], mb="xs"),
+                    dmc.Select(id="select-rev-phase", placeholder="Phase", data=[
+                        {"value": p, "label": p} for p in ["R00", "R10", "R20", "R30", "R40", "R50", "R60"]
+                    ], mb="xs"),
+                    dmc.Button("➕ Add Revision", id="btn-add-revision", size="xs", fullWidth=True),
+                ], withBorder=True, p="md", mb="md"),
+                
+                dmc.Card([
+                    dmc.Text("Block", fw=600),
+                    dmc.Select(id="select-rev-for-block", placeholder="Select Revision", data=[], mb="xs"),
+                    dmc.Select(id="select-block-name", placeholder="Block Name", data=[
+                        {"value": b, "label": b} for b in ["FULLCHIP", "FULLCHIP_NO_CORE", "CORE", "PAD", "IO", "PHY"]
+                    ], mb="xs"),
+                    dmc.Button("➕ Add Block", id="btn-add-block", size="xs", fullWidth=True),
+                ], withBorder=True, p="md"),
+            ], span=4),
             
-            # Progress Dashboard Tab
-            dmc.TabsPanel([
-                html.Div(id="analysis-progress-content")
-            ], value="progress"),
+            # Column 2: Application, Designer
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("SignoffApplication", fw=600),
+                    dmc.Select(id="select-app-preset", placeholder="Preset Application", data=[
+                        {"value": "DSC", "label": "DSC - Driver Size Check"},
+                        {"value": "LSC", "label": "LSC - Latch Strength Check"},
+                        {"value": "LS", "label": "LS - Level Shifter Check"},
+                        {"value": "PEC", "label": "PEC - Power Error Check"},
+                        {"value": "CANATR", "label": "CANATR - Coupling Noise"},
+                        {"value": "CDA", "label": "CDA - Coupling Delay"},
+                    ], mb="xs"),
+                    dmc.Button("➕ Add Application", id="btn-add-app", size="xs", fullWidth=True),
+                ], withBorder=True, p="md", mb="md"),
+                
+                dmc.Card([
+                    dmc.Text("Designer", fw=600),
+                    dmc.TextInput(id="input-designer-id", placeholder="Designer ID", mb="xs"),
+                    dmc.TextInput(id="input-designer-name", placeholder="Name", mb="xs"),
+                    dmc.Select(id="select-designer-role", placeholder="Role", data=[
+                        {"value": "ENGINEER", "label": "Engineer"},
+                        {"value": "LEAD", "label": "Lead"},
+                        {"value": "MANAGER", "label": "Manager"},
+                        {"value": "DEVELOPER", "label": "Developer"},
+                    ], mb="xs"),
+                    dmc.Button("➕ Add Designer", id="btn-add-designer", size="xs", fullWidth=True),
+                ], withBorder=True, p="md", mb="md"),
+                
+                dmc.Card([
+                    dmc.Text("SignoffTask", fw=600),
+                    dmc.Select(id="select-block-for-task", placeholder="Select Block", data=[], mb="xs"),
+                    dmc.Select(id="select-app-for-task", placeholder="Select Application", data=[], mb="xs"),
+                    dmc.Select(id="select-designer-for-task", placeholder="Select Owner", data=[], mb="xs"),
+                    dmc.Button("➕ Add Task", id="btn-add-task", size="xs", fullWidth=True),
+                ], withBorder=True, p="md"),
+            ], span=4),
             
-            # Critical Path Tab
-            dmc.TabsPanel([
-                html.Div(id="analysis-critical-content")
-            ], value="critical"),
+            # Column 3: Job, Result
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("SignoffJob", fw=600),
+                    dmc.Select(id="select-task-for-job", placeholder="Select Task", data=[], mb="xs"),
+                    dmc.Button("▶️ Execute Job", id="btn-add-job", size="xs", fullWidth=True, color="green"),
+                ], withBorder=True, p="md", mb="md"),
+                
+                dmc.Card([
+                    dmc.Text("Result", fw=600),
+                    dmc.Select(id="select-job-for-result", placeholder="Select Job", data=[], mb="xs"),
+                    dmc.NumberInput(id="input-total-rows", placeholder="Total Rows", value=1000, min=1, mb="xs"),
+                    dmc.NumberInput(id="input-waiver-count", placeholder="Waiver Count", value=700, min=0, mb="xs"),
+                    dmc.NumberInput(id="input-fixed-count", placeholder="Fixed Count", value=200, min=0, mb="xs"),
+                    dmc.Button("📊 Add Result", id="btn-add-result", size="xs", fullWidth=True, color="orange"),
+                ], withBorder=True, p="md"),
+            ], span=4),
+        ]),
+        
+    ], fluid=True, p="xl")
+
+
+# --- Page: Graph ---
+def create_graph_page():
+    return dmc.Container([
+        dmc.Title("🗺️ Ontology Graph", order=2, mb="lg"),
+        dmc.Text("10개 Object Type과 관계를 시각화합니다.", c="dimmed", mb="md"),
+        
+        dmc.Grid([
+            dmc.GridCol([
+                dmc.Group([
+                    dmc.Select(
+                        id="graph-layout",
+                        label="Layout",
+                        data=[
+                            {"value": "cose", "label": "Force-directed"},
+                            {"value": "breadthfirst", "label": "Hierarchical"},
+                            {"value": "grid", "label": "Grid"},
+                            {"value": "circle", "label": "Circle"},
+                            {"value": "concentric", "label": "Concentric"},
+                        ],
+                        value="breadthfirst",
+                        w=150
+                    ),
+                    dmc.MultiSelect(
+                        id="graph-type-filter",
+                        label="Object Types",
+                        data=[{"value": t, "label": t} for t in store.COLORS.keys()],
+                        value=list(store.COLORS.keys()),
+                        w=300
+                    ),
+                ]),
+            ], span=12),
+        ], mb="md"),
+        
+        dmc.Grid([
+            dmc.GridCol([
+                dmc.Paper([
+                    cyto.Cytoscape(
+                        id='ontology-graph',
+                        layout={'name': 'breadthfirst', 'directed': True},
+                        style={'width': '100%', 'height': '600px'},
+                        stylesheet=graph_stylesheet,
+                        elements=[]
+                    )
+                ], withBorder=True, p="xs", radius="md")
+            ], span=8),
             
-            # Timeline Tab
-            dmc.TabsPanel([
-                html.Div(id="analysis-timeline-content")
-            ], value="timeline"),
-            
-            # Advanced Query Tab
-            dmc.TabsPanel([
-                dmc.Grid([
-                    dmc.GridCol([
-                        dmc.Paper([
-                            dmc.Title("조건부 검색", order=4, mb="md"),
-                            dmc.Select(
-                                label="Revision 선택",
-                                id="query-revision-select",
-                                data=store.get_revision_options(),
-                                placeholder="선택...",
-                                clearable=True,
-                                mb="sm"
-                            ),
-                            dmc.Select(
-                                label="상태 필터",
-                                id="query-status-filter",
-                                data=[
-                                    {"value": "대기중", "label": "대기중"},
-                                    {"value": "실행중", "label": "실행중"},
-                                    {"value": "완료", "label": "완료"},
-                                    {"value": "진행중", "label": "진행중"},
-                                ],
-                                placeholder="전체",
-                                clearable=True,
-                                mb="sm"
-                            ),
-                            dmc.TextInput(
-                                label="키워드 검색",
-                                id="query-keyword",
-                                placeholder="예: FULLCHIP, DSC...",
-                                mb="md"
-                            ),
-                            dmc.Button("검색", id="btn-advanced-query", color="violet", fullWidth=True)
-                        ], p="md", withBorder=True)
-                    ], span=3),
-                    dmc.GridCol([
-                        dmc.Paper([
-                            dmc.Title("검색 결과", order=4, mb="md"),
-                            html.Div(id="analysis-query-results")
-                        ], p="md", withBorder=True, mih=400)
-                    ], span=9)
-                ])
-            ], value="query"),
-        ], value="progress")
-    ])
+            dmc.GridCol([
+                dmc.Paper([
+                    dmc.Title("Node Details", order=4, mb="md"),
+                    html.Div(id="node-detail-content", children=[
+                        dmc.Text("Click a node to see details", c="dimmed")
+                    ])
+                ], withBorder=True, p="md", radius="md", h="100%")
+            ], span=4),
+        ]),
+        
+        # Legend
+        dmc.Paper([
+            dmc.Group([
+                dmc.Group([
+                    html.Div(style={"width": 16, "height": 16, "backgroundColor": color, "borderRadius": 4}),
+                    dmc.Text(obj_type, size="xs")
+                ], gap="xs") for obj_type, color in store.COLORS.items()
+            ], gap="lg")
+        ], withBorder=True, p="sm", mt="md"),
+        
+    ], fluid=True, p="xl")
+
+
+# --- Page: Explorer ---
+def create_explorer_page():
+    return dmc.Container([
+        dmc.Title("📊 Data Explorer", order=2, mb="lg"),
+        dmc.Text("모든 Ontology 객체를 테이블로 탐색합니다.", c="dimmed", mb="md"),
+        
+        dmc.Select(
+            id="explorer-type-select",
+            label="Object Type",
+            data=[{"value": t, "label": t} for t in store.COLORS.keys()],
+            value="Result",
+            w=200,
+            mb="md"
+        ),
+        
+        dmc.TextInput(id="explorer-search", placeholder="Search...", w=300, mb="md"),
+        
+        html.Div(id="explorer-table-container"),
+        
+    ], fluid=True, p="xl")
+
+
+# --- Page: Dashboard ---
+def create_dashboard_page():
+    return dmc.Container([
+        dmc.Title("📈 Signoff Dashboard", order=2, mb="lg"),
+        dmc.Text("Revision별 Signoff 진행률 및 WAIVER/FIXED/PENDING 현황", c="dimmed", mb="xl"),
+        
+        # KPI Cards
+        html.Div(id="dashboard-kpi-cards", className="mb-4"),
+        
+        dmc.Divider(my="lg"),
+        
+        # Progress by Revision
+        dmc.Title("Revision별 진행률", order=4, mb="md"),
+        html.Div(id="dashboard-revision-progress"),
+        
+        dmc.Divider(my="lg"),
+        
+        # Application별 현황
+        dmc.Title("Application별 현황", order=4, mb="md"),
+        html.Div(id="dashboard-app-stats"),
+        
+    ], fluid=True, p="xl")
+
+
+# --- Page: Compare ---
+def create_compare_page():
+    return dmc.Container([
+        dmc.Title("🔄 Compare & Migration", order=2, mb="lg"),
+        dmc.Text("Revision 간 결과 비교 및 Waiver Migration 시뮬레이션", c="dimmed", mb="xl"),
+        
+        dmc.Grid([
+            dmc.GridCol([
+                dmc.Select(id="compare-rev1", label="Base Revision (Previous)", placeholder="Select", data=[]),
+            ], span=4),
+            dmc.GridCol([
+                dmc.Select(id="compare-rev2", label="Target Revision (Current)", placeholder="Select", data=[]),
+            ], span=4),
+            dmc.GridCol([
+                dmc.Button("🔍 Compare", id="btn-compare", mt="xl"),
+            ], span=4),
+        ], mb="xl"),
+        
+        html.Div(id="compare-results"),
+        
+    ], fluid=True, p="xl")
+
 
 # --- App Layout ---
 app.layout = dmc.MantineProvider(
@@ -403,211 +336,88 @@ app.layout = dmc.MantineProvider(
     theme={"primaryColor": "blue", "fontFamily": "'Pretendard', 'Inter', sans-serif"},
     children=[
         dcc.Location(id="url"),
-        dcc.Store(id="store-trigger", data=0),
-        dcc.Download(id="download-csv"),
-        dcc.Download(id="download-json"),
-        dcc.Download(id="download-parquet"),
+        dcc.Store(id="builder-trigger", data=0),  # Global trigger for updates across pages
         dmc.Grid([
-            dmc.GridCol(create_sidebar(), span=2, style={"minHeight": "100vh", "backgroundColor": "#f8f9fa", "borderRight": "1px solid #dee2e6"}),
-            dmc.GridCol(dmc.Container(id="page-content", p="xl", fluid=True), span=10)
+            dmc.GridCol(create_sidebar(), span=2),
+            dmc.GridCol(html.Div(id="page-content"), span=10)
         ], gutter=0)
     ]
 )
 
-# === CALLBACKS ===
 
-# Page Routing
-@app.callback(
-    [Output("page-content", "children"),
-     Output("nav-builder", "active"), Output("nav-map", "active"), 
-     Output("nav-analysis", "active"), Output("nav-explorer", "active")],
-    Input("url", "pathname")
-)
+# ========== CALLBACKS ==========
+
+# --- Page Routing ---
+@callback(Output("page-content", "children"), Input("url", "pathname"))
 def render_page(pathname):
-    if pathname == "/map":
-        return create_map_page(), False, True, False, False
-    elif pathname == "/analysis":
-        return create_analysis_page(), False, False, True, False
+    if pathname == "/graph":
+        return create_graph_page()
     elif pathname == "/explorer":
-        return create_explorer_page(), False, False, False, True
-    return create_builder_page(), True, False, False, False
+        return create_explorer_page()
+    elif pathname == "/dashboard":
+        return create_dashboard_page()
+    elif pathname == "/compare":
+        return create_compare_page()
+    else:
+        return create_builder_page()
 
-# Template & Clear
-@app.callback(
-    Output("store-trigger", "data", allow_duplicate=True),
-    [Input("btn-load-template", "n_clicks"), Input("btn-clear-all", "n_clicks")],
-    State("template-level", "value"),
-    State("store-trigger", "data"),
+
+# --- Scenario Loading ---
+@callback(
+    Output("builder-trigger", "data"),
+    Input("btn-scenario-a", "n_clicks"),
+    Input("btn-scenario-b", "n_clicks"),
+    Input("btn-scenario-c", "n_clicks"),
+    Input("btn-clear", "n_clicks"),
+    State("builder-trigger", "data"),
     prevent_initial_call=True
 )
-def handle_template_buttons(n_load, n_clear, level, trigger):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return trigger
-    
-    btn_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if btn_id == "btn-load-template":
-        store.load_template(level)
-    elif btn_id == "btn-clear-all":
+def load_scenario(na, nb, nc, nclear, trigger):
+    triggered = ctx.triggered_id
+    if triggered == "btn-scenario-a":
+        store.load_template("full_lifecycle")
+    elif triggered == "btn-scenario-b":
+        store.load_template("r30_detail")
+    elif triggered == "btn-scenario-c":
+        store.load_template("compare")
+    elif triggered == "btn-clear":
         store.clear_all()
-    
-    return trigger + 1
+    return (trigger or 0) + 1
 
-# Sidebar Stats
-@app.callback(
-    Output("sidebar-stats", "children"),
-    Input("store-trigger", "data")
-)
-def update_sidebar_stats(trigger):
+
+# --- Sidebar Stats ---
+@callback(Output("sidebar-stats", "children"), Input("builder-trigger", "data"), Input("url", "pathname"))
+def update_stats(trigger, pathname):
     stats = store.get_statistics()
     return dmc.Stack([
-        dmc.Text("통계", size="sm", fw=500),
-        dmc.SimpleGrid([
-            dmc.Paper([
-                dmc.Text(str(stats.get("Task", 0)), size="lg", fw=700, ta="center"),
-                dmc.Text("Task", size="xs", c="dimmed", ta="center")
-            ], p="xs", withBorder=True),
-            dmc.Paper([
-                dmc.Text(str(stats.get("완료", 0)), size="lg", fw=700, ta="center", c="green"),
-                dmc.Text("완료", size="xs", c="dimmed", ta="center")
-            ], p="xs", withBorder=True),
-        ], cols=2, spacing="xs")
-    ], gap="xs")
+        dmc.Text(f"📦 Products: {stats['products']}", size="xs", c="dimmed"),
+        dmc.Text(f"📋 Revisions: {stats['revisions']}", size="xs", c="dimmed"),
+        dmc.Text(f"🧱 Blocks: {stats['blocks']}", size="xs", c="dimmed"),
+        dmc.Text(f"📝 Tasks: {stats['tasks']}", size="xs", c="dimmed"),
+        dmc.Text(f"⚙️ Jobs: {stats['jobs']}", size="xs", c="dimmed"),
+        dmc.Text(f"📊 Results: {stats['results']}", size="xs", c="dimmed"),
+        dmc.Divider(my="xs"),
+        dmc.Text(f"✅ WAIVER: {stats['total_waiver']:,}", size="xs", c="green"),
+        dmc.Text(f"🔧 FIXED: {stats['total_fixed']:,}", size="xs", c="blue"),
+        dmc.Text(f"⏳ PENDING: {stats['total_pending']:,}", size="xs", c="orange"),
+        dmc.Progress(value=stats['overall_progress'], color="green", size="sm", mt="xs"),
+        dmc.Text(f"{stats['overall_progress']}% Complete", size="xs", c="dimmed", ta="center"),
+    ], gap=2)
 
-# === Builder Callbacks ===
 
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-product", "n_clicks"),
-    [State("input-product-name", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
+# --- Builder Dropdowns ---
+@callback(
+    Output("select-product-for-rev", "data"),
+    Output("select-rev-for-block", "data"),
+    Output("select-block-for-task", "data"),
+    Output("select-app-for-task", "data"),
+    Output("select-designer-for-task", "data"),
+    Output("select-task-for-job", "data"),
+    Output("select-job-for-result", "data"),
+    Input("builder-trigger", "data"),
+    Input("url", "pathname")
 )
-def add_product(n_clicks, name, trigger):
-    if not name:
-        return trigger, dmc.Alert("제품 이름을 입력하세요", color="yellow", withCloseButton=True)
-    result = store.add_product(name)
-    if result:
-        return trigger + 1, dmc.Alert(f"✅ Product '{name}' 생성 완료", color="green", withCloseButton=True)
-    return trigger, dmc.Alert(f"⚠️ '{name}'이(가) 이미 존재합니다", color="orange", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-revision", "n_clicks"),
-    [State("select-product-for-rev", "value"), State("input-revision-name", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_revision(n_clicks, product_id, name, trigger):
-    if not product_id or not name:
-        return trigger, dmc.Alert("Product와 버전 이름을 입력하세요", color="yellow", withCloseButton=True)
-    result = store.add_revision(product_id, name)
-    if result:
-        return trigger + 1, dmc.Alert(f"✅ Revision '{name}' 생성", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 이미 존재하거나 오류", color="orange", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-block", "n_clicks"),
-    [State("select-revision-for-block", "value"), State("input-block-name", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_block(n_clicks, revision_id, name, trigger):
-    if not revision_id or not name:
-        return trigger, dmc.Alert("Revision과 블록 이름을 입력하세요", color="yellow", withCloseButton=True)
-    result = store.add_block(revision_id, name)
-    if result:
-        return trigger + 1, dmc.Alert(f"✅ Block '{name}' 생성", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 이미 존재하거나 오류", color="orange", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-designer", "n_clicks"),
-    [State("input-designer-name", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_designer(n_clicks, name, trigger):
-    if not name:
-        return trigger, dmc.Alert("담당자 이름을 입력하세요", color="yellow", withCloseButton=True)
-    result = store.add_designer(name)
-    if result:
-        return trigger + 1, dmc.Alert(f"✅ Designer '{name}' 등록", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 이미 존재", color="orange", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-app", "n_clicks"),
-    [State("input-app-name", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_app(n_clicks, name, trigger):
-    if not name:
-        return trigger, dmc.Alert("도구 이름을 입력하세요", color="yellow", withCloseButton=True)
-    result = store.add_signoff_app(name)
-    if result:
-        return trigger + 1, dmc.Alert(f"✅ App '{name}' 등록", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 이미 존재", color="orange", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-task", "n_clicks"),
-    [State("select-block-for-task", "value"), State("select-app-for-task", "value"), 
-     State("select-designer-for-task", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_task(n_clicks, block_id, app_id, designer_id, trigger):
-    if not block_id or not app_id:
-        return trigger, dmc.Alert("Block과 App을 선택하세요", color="yellow", withCloseButton=True)
-    result = store.add_task(block_id, app_id, designer_id)
-    if result:
-        return trigger + 1, dmc.Alert("✅ Task 생성", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 중복 또는 오류", color="orange", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-job", "n_clicks"),
-    [State("select-task-for-job", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_job(n_clicks, task_id, trigger):
-    if not task_id:
-        return trigger, dmc.Alert("Task를 선택하세요", color="yellow", withCloseButton=True)
-    result = store.add_job(task_id)
-    if result:
-        return trigger + 1, dmc.Alert("✅ Job 실행", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 오류", color="red", withCloseButton=True)
-
-@app.callback(
-    [Output("store-trigger", "data", allow_duplicate=True), Output("notification-area", "children", allow_duplicate=True)],
-    Input("btn-add-result", "n_clicks"),
-    [State("select-job-for-result", "value"), State("input-violation-count", "value"), 
-     State("input-waiver-count", "value"), State("store-trigger", "data")],
-    prevent_initial_call=True
-)
-def add_result(n_clicks, job_id, violations, waivers, trigger):
-    if not job_id:
-        return trigger, dmc.Alert("Job을 선택하세요", color="yellow", withCloseButton=True)
-    # total_rows defaults to 100 for manual creation
-    total_rows = max(100, (violations or 0) + (waivers or 0) + 10)
-    result = store.add_result(job_id, total_rows, violations or 0, waivers or 0)
-    if result:
-        return trigger + 1, dmc.Alert("✅ Result 생성", color="green", withCloseButton=True)
-    return trigger, dmc.Alert("⚠️ 오류", color="red", withCloseButton=True)
-
-# Update Dropdowns (only builder components that always exist)
-@app.callback(
-    [Output("select-product-for-rev", "data"),
-     Output("select-revision-for-block", "data"),
-     Output("select-block-for-task", "data"),
-     Output("select-app-for-task", "data"),
-     Output("select-designer-for-task", "data"),
-     Output("select-task-for-job", "data"),
-     Output("select-job-for-result", "data"),
-     Output("builder-graph", "elements")],
-    Input("store-trigger", "data")
-)
-def update_dropdowns(trigger):
-    elements = store.to_graph_elements()
-    
+def update_builder_dropdowns(trigger, pathname):
     return (
         store.get_product_options(),
         store.get_revision_options(),
@@ -615,489 +425,487 @@ def update_dropdowns(trigger):
         store.get_app_options(),
         store.get_designer_options(),
         store.get_task_options(),
-        store.get_job_options(),
-        elements
+        [{"value": j["job_id"], "label": j["job_id"]} for j in store.signoff_jobs if j["status"] != "DONE"],
     )
 
-# === Map Callbacks ===
 
-@app.callback(
-    [Output("map-graph", "elements"), Output("map-graph", "layout")],
-    [Input("store-trigger", "data"), 
-     Input("map-layout-select", "value"),
-     Input("map-type-filter", "value"),
-     Input("map-product-filter", "value"),
-     Input("map-status-filter", "value")]
+# --- Builder: Add Product ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-product", "n_clicks"),
+    State("input-product-id", "value"),
+    State("input-product-name", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
 )
-def update_map(trigger, layout_type, type_filter, product_filter, status_filter):
+def add_product(n, pid, pname, trigger):
+    if n and pid:
+        store.add_product(pid, pname or pid)
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Revision ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-revision", "n_clicks"),
+    State("select-product-for-rev", "value"),
+    State("select-rev-phase", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_revision(n, product_id, phase, trigger):
+    if n and product_id and phase:
+        rev_id = f"{product_id}_{phase}"
+        store.add_revision(rev_id, product_id, phase)
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Block ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-block", "n_clicks"),
+    State("select-rev-for-block", "value"),
+    State("select-block-name", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_block(n, rev_id, block_name, trigger):
+    if n and rev_id and block_name:
+        block_id = f"{rev_id}_{block_name}"
+        store.add_block(block_id, rev_id, block_name)
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Application ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-app", "n_clicks"),
+    State("select-app-preset", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_app(n, app_id, trigger):
+    if n and app_id:
+        store.add_signoff_application(app_id)
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Designer ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-designer", "n_clicks"),
+    State("input-designer-id", "value"),
+    State("input-designer-name", "value"),
+    State("select-designer-role", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_designer(n, did, dname, drole, trigger):
+    if n and did:
+        store.add_designer(did, dname, role=drole or "ENGINEER")
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Task ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-task", "n_clicks"),
+    State("select-block-for-task", "value"),
+    State("select-app-for-task", "value"),
+    State("select-designer-for-task", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_task(n, block_id, app_id, owner_id, trigger):
+    if n and block_id and app_id:
+        # Get revision_id from block
+        block = next((b for b in store.blocks if b["block_id"] == block_id), None)
+        if block:
+            task_id = f"{block_id}_{app_id}"
+            store.add_signoff_task(task_id, block["revision_id"], block_id, app_id, owner_id)
+            return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Job ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-job", "n_clicks"),
+    State("select-task-for-job", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_job(n, task_id, trigger):
+    if n and task_id:
+        job_id = f"JOB_{task_id}"
+        store.add_signoff_job(job_id, task_id, status="RUNNING")
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Builder: Add Result ---
+@callback(
+    Output("builder-trigger", "data", allow_duplicate=True),
+    Input("btn-add-result", "n_clicks"),
+    State("select-job-for-result", "value"),
+    State("input-total-rows", "value"),
+    State("input-waiver-count", "value"),
+    State("input-fixed-count", "value"),
+    State("builder-trigger", "data"),
+    prevent_initial_call=True
+)
+def add_result(n, job_id, total, waiver, fixed, trigger):
+    if n and job_id:
+        result_id = f"RESULT_{job_id}"
+        store.add_result(result_id, job_id, total or 1000, waiver or 0, fixed or 0)
+        return (trigger or 0) + 1
+    return trigger
+
+
+# --- Graph Update ---
+@callback(
+    Output("ontology-graph", "elements"),
+    Output("ontology-graph", "layout"),
+    Input("builder-trigger", "data"),
+    Input("graph-layout", "value"),
+    Input("graph-type-filter", "value"),
+    Input("url", "pathname")
+)
+def update_graph(trigger, layout, type_filter, pathname):
     elements = store.to_graph_elements()
     
-    # Apply filters
-    if type_filter or product_filter or status_filter:
-        filtered = []
-        valid_ids = set()
-        
+    # Filter by type
+    if type_filter:
+        filtered_elements = []
+        node_ids = set()
         for el in elements:
-            if "source" not in el["data"]:  # Node
-                node = el["data"]
-                keep = True
-                
-                if type_filter and node.get("type") != type_filter:
-                    keep = False
-                if product_filter and product_filter not in node.get("id", ""):
-                    keep = False
-                # Status filter only applies to Tasks/Jobs
-                if status_filter:
-                    obj = None
-                    for t in store.tasks:
-                        if t["id"] == node.get("id"):
-                            obj = t
-                            break
-                    if not obj:
-                        for j in store.jobs:
-                            if j["id"] == node.get("id"):
-                                obj = j
-                                break
-                    if obj and obj.get("status") != status_filter:
-                        keep = False
-                
-                if keep:
-                    valid_ids.add(node["id"])
-                    filtered.append(el)
-        
-        # Add edges between valid nodes
+            if "source" not in el.get("data", {}):  # Node
+                if el["data"].get("type") in type_filter:
+                    filtered_elements.append(el)
+                    node_ids.add(el["data"]["id"])
+        # Add edges only if both nodes are present
         for el in elements:
-            if "source" in el["data"]:
-                if el["data"]["source"] in valid_ids and el["data"]["target"] in valid_ids:
-                    filtered.append(el)
-        
-        elements = filtered
+            if "source" in el.get("data", {}):  # Edge
+                if el["data"]["source"] in node_ids and el["data"]["target"] in node_ids:
+                    filtered_elements.append(el)
+        elements = filtered_elements
     
-    # Layout
-    if layout_type == "layered":
-        positions = store.get_layered_positions()
-        for el in elements:
-            if "source" not in el["data"]:
-                node_id = el["data"]["id"]
-                if node_id in positions:
-                    el["position"] = positions[node_id]
-        return elements, {"name": "preset"}
-    else:
-        layout_config = {"name": layout_type, "animate": True}
-        if layout_type == "cose":
-            layout_config["nodeRepulsion"] = 10000
-        return elements, layout_config
+    layout_config = {'name': layout or 'breadthfirst', 'directed': True}
+    
+    return elements, layout_config
 
-@app.callback(
-    Output("map-node-details", "children"),
-    Input("map-graph", "tapNodeData")
+
+# --- Graph Node Click ---
+@callback(
+    Output("node-detail-content", "children"),
+    Input("ontology-graph", "tapNodeData"),
 )
-def show_node_details(node_data):
+def show_node_detail(node_data):
     if not node_data:
-        return dmc.Text("노드를 클릭하세요", c="dimmed")
+        return dmc.Text("Click a node to see details", c="dimmed")
     
     node_id = node_data.get("id", "")
     node_type = node_data.get("type", "")
     
-    # Find the full object from store
+    # Find the object
+    all_objects = store.get_all_objects()
     obj = None
-    if node_type == "Job":
-        obj = next((j for j in store.jobs if j["id"] == node_id), None)
-    elif node_type == "Result":
-        obj = next((r for r in store.results if r["id"] == node_id), None)
-    elif node_type == "Task":
-        obj = next((t for t in store.tasks if t["id"] == node_id), None)
-    elif node_type == "Block":
-        obj = next((b for b in store.blocks if b["id"] == node_id), None)
-    elif node_type == "Product":
-        obj = next((p for p in store.products if p["id"] == node_id), None)
-    elif node_type == "Revision":
-        obj = next((r for r in store.revisions if r["id"] == node_id), None)
-    elif node_type == "SignoffApp":
-        obj = next((a for a in store.signoff_apps if a["id"] == node_id), None)
-    elif node_type == "Designer":
-        obj = next((d for d in store.designers if d["id"] == node_id), None)
+    for obj_type, obj_list in all_objects.items():
+        for o in obj_list:
+            obj_id_key = list(o.keys())[0]  # First key is usually the ID
+            if o.get(obj_id_key) == node_id or o.get("product_id") == node_id or \
+               o.get("revision_id") == node_id or o.get("block_id") == node_id or \
+               o.get("app_id") == node_id or o.get("designer_id") == node_id or \
+               o.get("task_id") == node_id or o.get("job_id") == node_id or \
+               o.get("result_id") == node_id:
+                obj = o
+                break
+        if obj:
+            break
     
-    # Build details list
-    details = [
-        dmc.Group([
-            html.Div(style={"width": "16px", "height": "16px", "borderRadius": "50%", "backgroundColor": node_data.get("color", "#868e96")}),
-            dmc.Text(node_data.get("label", ""), fw=600)
-        ]),
-        dmc.Badge(node_type, variant="outline", size="sm"),
-        dmc.Divider(my="xs"),
-        dmc.Code(node_id, block=True, style={"fontSize": "10px"})
-    ]
+    if not obj:
+        return dmc.Text(f"Node: {node_id}", c="dimmed")
     
-    # Add object-specific attributes
-    if obj:
-        if node_type == "Job":
-            details.extend([
-                dmc.Divider(my="xs", label="Job 상세", labelPosition="center"),
-                dmc.Text(f"상태: {obj.get('status', 'N/A')}", size="xs"),
-                dmc.Text(f"시작: {obj.get('start_time', 'N/A')[:19] if obj.get('start_time') else 'N/A'}", size="xs"),
-                dmc.Text(f"종료: {obj.get('end_time', 'N/A')[:19] if obj.get('end_time') else '실행중'}", size="xs"),
-                dmc.Text(f"경로: {obj.get('workspace_dir', 'N/A')}", size="xs", style={"wordBreak": "break-all"})
-            ])
-        elif node_type == "Result":
-            progress = obj.get("progress_pct", 0)
-            details.extend([
-                dmc.Divider(my="xs", label="Result 상세", labelPosition="center"),
-                dmc.Group([
-                    dmc.Text("진행률:", size="xs"),
-                    dmc.Badge(f"{progress}%", color="green" if progress >= 90 else "yellow", size="sm")
-                ]),
-                dmc.Text(f"Total: {obj.get('total_rows', 0)}", size="xs"),
-                dmc.Text(f"Violations: {obj.get('violation_count', 0)}", size="xs", c="red"),
-                dmc.Text(f"Waivers: {obj.get('waiver_count', 0)}", size="xs", c="blue"),
-                dmc.Text(f"Remaining: {obj.get('remaining', 0)}", size="xs"),
-                dmc.Text(f"파일: {obj.get('file_path', 'N/A')}", size="xs", style={"wordBreak": "break-all"})
-            ])
-        elif node_type == "Task":
-            details.extend([
-                dmc.Divider(my="xs", label="Task 상세", labelPosition="center"),
-                dmc.Text(f"상태: {obj.get('status', 'N/A')}", size="xs"),
-                dmc.Text(f"Block: {obj.get('block_id', 'N/A')}", size="xs"),
-                dmc.Text(f"App: {obj.get('app_id', 'N/A')}", size="xs"),
-                dmc.Text(f"담당: {obj.get('designer_id', 'N/A')}", size="xs")
-            ])
-    
-    return dmc.Stack(details, gap="xs")
-
-@app.callback(
-    Output("map-related-objects", "children"),
-    Input("map-graph", "tapNodeData")
-)
-def show_related(node_data):
-    if not node_data:
-        return dmc.Text("노드 선택 시 표시", c="dimmed", size="sm")
-    
-    related = store.get_related_objects(node_data.get("id", ""))
-    
+    # Display object properties
     items = []
-    if related["upstream"]:
-        items.append(dmc.Text("⬆️ 상위", size="xs", fw=500))
-        for obj in related["upstream"]:
-            items.append(dmc.Badge(obj.get("name", obj.get("id", "")), size="xs", variant="light", color="blue"))
+    for k, v in obj.items():
+        if not k.startswith("_"):
+            if isinstance(v, dict):
+                v = json.dumps(v, ensure_ascii=False)
+            items.append(dmc.Group([
+                dmc.Text(f"{k}:", size="xs", fw=600, c="dimmed", w=120),
+                dmc.Text(str(v)[:50], size="xs")
+            ], gap="xs"))
     
-    if related["downstream"]:
-        items.append(dmc.Text("⬇️ 하위", size="xs", fw=500, mt="xs"))
-        for obj in related["downstream"][:5]:  # Limit
-            items.append(dmc.Badge(obj.get("name", obj.get("id", "")), size="xs", variant="light", color="green"))
-        if len(related["downstream"]) > 5:
-            items.append(dmc.Text(f"... +{len(related['downstream'])-5}개", size="xs", c="dimmed"))
-    
-    if not items:
-        return dmc.Text("연결된 객체 없음", c="dimmed", size="sm")
-    
-    return dmc.Stack(items, gap=3)
+    return dmc.Stack([
+        dmc.Badge(node_type, color="blue", mb="sm"),
+        *items
+    ], gap="xs")
 
-# === Explorer Callbacks ===
 
-@app.callback(
-    [Output("explorer-stats", "children"), Output("explorer-content", "children")],
-    Input("store-trigger", "data")
+# --- Explorer Table ---
+@callback(
+    Output("explorer-table-container", "children"),
+    Input("explorer-type-select", "value"),
+    Input("explorer-search", "value"),
+    Input("builder-trigger", "data"),
+    Input("url", "pathname")
 )
-def update_explorer(trigger):
-    stats = store.get_statistics()
-    all_data = store.get_all_data()
+def update_explorer(obj_type, search, trigger, pathname):
+    all_objects = store.get_all_objects()
+    objects = all_objects.get(obj_type, [])
     
-    # Stats Cards
-    stat_cards = dmc.SimpleGrid([
-        dmc.Paper([
-            dmc.Text(str(stats.get("Task", 0)), size="xl", fw=700, ta="center"),
-            dmc.Text("전체 Task", size="sm", c="dimmed", ta="center")
-        ], p="md", withBorder=True),
-        dmc.Paper([
-            dmc.Text(str(stats.get("완료", 0)), size="xl", fw=700, ta="center", c="green"),
-            dmc.Text("완료", size="sm", c="dimmed", ta="center")
-        ], p="md", withBorder=True),
-        dmc.Paper([
-            dmc.Text(str(stats.get("실행중", 0)), size="xl", fw=700, ta="center", c="blue"),
-            dmc.Text("실행중", size="sm", c="dimmed", ta="center")
-        ], p="md", withBorder=True),
-        dmc.Paper([
-            dmc.Text(str(stats.get("대기중", 0)), size="xl", fw=700, ta="center", c="gray"),
-            dmc.Text("대기중", size="sm", c="dimmed", ta="center")
-        ], p="md", withBorder=True),
-    ], cols=4, spacing="md")
+    if not objects:
+        return dmc.Text("No data available", c="dimmed")
     
-    # Tables
-    tabs_list = []
-    panels = []
+    # Filter by search
+    if search:
+        search_lower = search.lower()
+        objects = [o for o in objects if search_lower in str(o).lower()]
     
-    for name, data in all_data.items():
-        if not data:
-            continue
-        
-        tabs_list.append(dmc.TabsTab(f"{name} ({len(data)})", value=name))
-        df = pd.DataFrame(data)
-        
-        table = dmc.Table(
-            children=[
-                html.Thead(html.Tr([html.Th(c) for c in df.columns])),
-                html.Tbody([html.Tr([html.Td(str(row[c])) for c in df.columns]) for _, row in df.iterrows()])
-            ],
-            striped=True, withTableBorder=True, style={"fontSize": "11px"}
-        )
-        panels.append(dmc.TabsPanel(dmc.ScrollArea(table, h=400), value=name))
+    # Create table
+    if not objects:
+        return dmc.Text("No matching results", c="dimmed")
     
-    if not tabs_list:
-        content = dmc.Alert("데이터가 없습니다. 빌더에서 생성하거나 샘플을 로드하세요.", color="blue")
-    else:
-        content = dmc.Tabs([dmc.TabsList(tabs_list)] + panels, value=tabs_list[0].value)
+    # Get columns from first object
+    columns = [k for k in objects[0].keys() if not k.startswith("_")]
     
-    return stat_cards, content
+    header = dmc.TableThead(
+        dmc.TableTr([dmc.TableTh(col) for col in columns])
+    )
+    
+    rows = []
+    for obj in objects[:50]:  # Limit to 50 rows
+        cells = []
+        for col in columns:
+            val = obj.get(col, "")
+            if isinstance(val, dict):
+                val = json.dumps(val, ensure_ascii=False)[:30] + "..."
+            elif isinstance(val, list):
+                val = ", ".join(str(v) for v in val[:3])
+            cells.append(dmc.TableTd(str(val)[:40]))
+        rows.append(dmc.TableTr(cells))
+    
+    body = dmc.TableTbody(rows)
+    
+    return dmc.Table([header, body], striped=True, highlightOnHover=True, withTableBorder=True)
 
-@app.callback(
-    Output("download-csv", "data"),
-    Input("btn-export-csv", "n_clicks"),
+
+# --- Dashboard ---
+@callback(
+    Output("dashboard-kpi-cards", "children"),
+    Output("dashboard-revision-progress", "children"),
+    Output("dashboard-app-stats", "children"),
+    Input("builder-trigger", "data"),
+    Input("url", "pathname")
+)
+def update_dashboard(trigger, pathname):
+    stats = store.get_statistics()
+    
+    # KPI Cards
+    kpi_cards = dmc.Grid([
+        dmc.GridCol([
+            dmc.Card([
+                dmc.Text("Total Rows", size="xs", c="dimmed"),
+                dmc.Title(f"{stats['total_rows']:,}", order=3),
+            ], withBorder=True, p="md")
+        ], span=2),
+        dmc.GridCol([
+            dmc.Card([
+                dmc.Text("WAIVER", size="xs", c="dimmed"),
+                dmc.Title(f"{stats['total_waiver']:,}", order=3, c="green"),
+            ], withBorder=True, p="md")
+        ], span=2),
+        dmc.GridCol([
+            dmc.Card([
+                dmc.Text("FIXED", size="xs", c="dimmed"),
+                dmc.Title(f"{stats['total_fixed']:,}", order=3, c="blue"),
+            ], withBorder=True, p="md")
+        ], span=2),
+        dmc.GridCol([
+            dmc.Card([
+                dmc.Text("PENDING", size="xs", c="dimmed"),
+                dmc.Title(f"{stats['total_pending']:,}", order=3, c="orange"),
+            ], withBorder=True, p="md")
+        ], span=2),
+        dmc.GridCol([
+            dmc.Card([
+                dmc.Text("Progress", size="xs", c="dimmed"),
+                dmc.Title(f"{stats['overall_progress']}%", order=3),
+                dmc.Progress(value=stats['overall_progress'], color="green", size="md", mt="xs"),
+            ], withBorder=True, p="md")
+        ], span=4),
+    ])
+    
+    # Revision Progress
+    rev_progress = store.get_revision_progress()
+    if not rev_progress:
+        rev_table = dmc.Text("No revision data", c="dimmed")
+    else:
+        header = dmc.TableThead(
+            dmc.TableTr([
+                dmc.TableTh("Revision"),
+                dmc.TableTh("Status"),
+                dmc.TableTh("Tasks"),
+                dmc.TableTh("Jobs"),
+                dmc.TableTh("Total"),
+                dmc.TableTh("WAIVER"),
+                dmc.TableTh("FIXED"),
+                dmc.TableTh("PENDING"),
+                dmc.TableTh("Progress"),
+            ])
+        )
+        rows = []
+        for r in rev_progress:
+            color = "green" if r["progress_pct"] >= 95 else ("yellow" if r["progress_pct"] >= 50 else "red")
+            rows.append(dmc.TableTr([
+                dmc.TableTd(r["revision_phase"]),
+                dmc.TableTd(dmc.Badge(r["status"], size="xs")),
+                dmc.TableTd(str(r["total_tasks"])),
+                dmc.TableTd(str(r["completed_jobs"])),
+                dmc.TableTd(f"{r['total_rows']:,}"),
+                dmc.TableTd(f"{r['waiver_count']:,}"),
+                dmc.TableTd(f"{r['fixed_count']:,}"),
+                dmc.TableTd(f"{r['pending_count']:,}"),
+                dmc.TableTd(dmc.Progress(value=r["progress_pct"], color=color, size="md", style={"width": 100})),
+            ]))
+        body = dmc.TableTbody(rows)
+        rev_table = dmc.Table([header, body], striped=True, withTableBorder=True)
+    
+    # App Stats (placeholder)
+    app_stats = dmc.Text(f"{len(store.signoff_applications)} Applications registered", c="dimmed")
+    
+    return kpi_cards, rev_table, app_stats
+
+
+# --- Compare Page ---
+@callback(
+    Output("compare-rev1", "data"),
+    Output("compare-rev2", "data"),
+    Input("builder-trigger", "data"),
+    Input("url", "pathname")
+)
+def update_compare_dropdowns(trigger, pathname):
+    options = store.get_revision_options()
+    return options, options
+
+
+@callback(
+    Output("compare-results", "children"),
+    Input("btn-compare", "n_clicks"),
+    State("compare-rev1", "value"),
+    State("compare-rev2", "value"),
     prevent_initial_call=True
 )
-def export_csv(n_clicks):
-    if not n_clicks:
-        return None
+def do_compare(n, rev1, rev2):
+    if not rev1 or not rev2:
+        return dmc.Text("Select two revisions to compare", c="dimmed")
     
-    all_data = store.get_all_data()
-    # Combine all into one CSV
-    rows = []
-    for obj_type, data in all_data.items():
-        for obj in data:
-            obj["_type"] = obj_type
-            rows.append(obj)
+    # Find results for each revision
+    rev1_tasks = [t for t in store.signoff_tasks if t["revision_id"] == rev1]
+    rev2_tasks = [t for t in store.signoff_tasks if t["revision_id"] == rev2]
     
-    if not rows:
-        return None
+    rev1_jobs = [j for j in store.signoff_jobs if j["task_id"] in [t["task_id"] for t in rev1_tasks]]
+    rev2_jobs = [j for j in store.signoff_jobs if j["task_id"] in [t["task_id"] for t in rev2_tasks]]
     
-    df = pd.DataFrame(rows)
-    return dcc.send_data_frame(df.to_csv, "ontology_export.csv", index=False)
+    rev1_results = [r for r in store.results if r["job_id"] in [j["job_id"] for j in rev1_jobs]]
+    rev2_results = [r for r in store.results if r["job_id"] in [j["job_id"] for j in rev2_jobs]]
+    
+    # Summary
+    rev1_total = sum(r["row_count"] for r in rev1_results)
+    rev2_total = sum(r["row_count"] for r in rev2_results)
+    
+    rev1_waiver = sum(r["waiver_count"] for r in rev1_results)
+    rev2_waiver = sum(r["waiver_count"] for r in rev2_results)
+    
+    # Comparison summary from rev2 results
+    total_same = sum(r["comparison_summary"].get("same_count", 0) for r in rev2_results)
+    total_diff = sum(r["comparison_summary"].get("diff_count", 0) for r in rev2_results)
+    total_new = sum(r["comparison_summary"].get("new_count", 0) for r in rev2_results)
+    total_removed = sum(r["comparison_summary"].get("removed_count", 0) for r in rev2_results)
+    
+    return dmc.Stack([
+        dmc.Title(f"{rev1} vs {rev2}", order=4),
+        
+        dmc.Grid([
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text(rev1.split("_")[-1], fw=600),
+                    dmc.Text(f"Total: {rev1_total:,}", size="sm"),
+                    dmc.Text(f"WAIVER: {rev1_waiver:,}", size="sm", c="green"),
+                ], withBorder=True, p="md")
+            ], span=4),
+            
+            dmc.GridCol([
+                dmc.Stack([
+                    dmc.Text("→", size="xl", ta="center"),
+                    dmc.Text("Migration", size="xs", c="dimmed", ta="center"),
+                ], align="center", justify="center", h="100%")
+            ], span=2),
+            
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text(rev2.split("_")[-1], fw=600),
+                    dmc.Text(f"Total: {rev2_total:,}", size="sm"),
+                    dmc.Text(f"WAIVER: {rev2_waiver:,}", size="sm", c="green"),
+                ], withBorder=True, p="md")
+            ], span=4),
+        ], mb="lg"),
+        
+        dmc.Title("Comparison Summary", order=5, mb="md"),
+        dmc.Grid([
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("Same", size="xs", c="dimmed"),
+                    dmc.Title(f"{total_same:,}", order=4, c="green"),
+                    dmc.Text("→ WAIVER 자동 이관", size="xs", c="dimmed"),
+                ], withBorder=True, p="md", bg="green.0")
+            ], span=3),
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("Diff", size="xs", c="dimmed"),
+                    dmc.Title(f"{total_diff:,}", order=4, c="orange"),
+                    dmc.Text("→ 재검토 필요", size="xs", c="dimmed"),
+                ], withBorder=True, p="md", bg="orange.0")
+            ], span=3),
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("New", size="xs", c="dimmed"),
+                    dmc.Title(f"{total_new:,}", order=4, c="red"),
+                    dmc.Text("→ 신규 검토", size="xs", c="dimmed"),
+                ], withBorder=True, p="md", bg="red.0")
+            ], span=3),
+            dmc.GridCol([
+                dmc.Card([
+                    dmc.Text("Removed", size="xs", c="dimmed"),
+                    dmc.Title(f"{total_removed:,}", order=4, c="gray"),
+                    dmc.Text("→ 해결됨", size="xs", c="dimmed"),
+                ], withBorder=True, p="md", bg="gray.0")
+            ], span=3),
+        ]),
+    ])
 
-@app.callback(
+
+# --- Export JSON ---
+@callback(
     Output("download-json", "data"),
     Input("btn-export-json", "n_clicks"),
     prevent_initial_call=True
 )
-def export_json(n_clicks):
-    if not n_clicks:
-        return None
-    
-    json_str = store.to_json()
-    if not json_str:
-        return None 
-    
-    return dict(content=json_str, filename="signoff_ontology_graph.json")
-
-@app.callback(
-    Output("download-parquet", "data"),
-    Input("btn-export-parquet", "n_clicks"),
-    prevent_initial_call=True
-)
-def export_parquet(n_clicks):
-    if not n_clicks:
-        return None
-    
-    try:
-        import io
-        import zipfile
-        
-        parquet_files = store.to_parquet_bytes()
-        if not parquet_files:
-            return None
-        
-        # Create ZIP containing both files
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for filename, data in parquet_files.items():
-                zf.writestr(filename, data)
-        
-        zip_buffer.seek(0)
-        return dcc.send_bytes(zip_buffer.getvalue(), "signoff_ontology_parquet.zip")
-        
-    except ImportError as e:
-        print(f"Parquet export failed (pyarrow not installed): {e}")
-        return None
-    except Exception as e:
-        print(f"Parquet export error: {e}")
-        return None
-
-# === Analysis Callbacks ===
-
-@app.callback(
-    Output("analysis-progress-content", "children"),
-    Input("store-trigger", "data")
-)
-def update_progress_dashboard(trigger):
-    """Revision별 검증 진행률 대시보드"""
-    revisions = store.revisions
-    if not revisions:
-        return dmc.Alert("데이터가 없습니다. 샘플을 로드하세요.", color="blue")
-    
-    cards = []
-    for rev in revisions:
-        rev_id = rev["id"]
-        # Get all results for this revision
-        rev_results = []
-        for task in store.tasks:
-            block = next((b for b in store.blocks if b["id"] == task["block_id"]), None)
-            if block and block["revision_id"] == rev_id:
-                for job in store.jobs:
-                    if job["task_id"] == task["id"]:
-                        for res in store.results:
-                            if res["job_id"] == job["id"]:
-                                rev_results.append(res)
-        
-        # Calculate overall progress
-        if rev_results:
-            total_rows = sum(r.get("total_rows", 100) for r in rev_results)
-            processed = sum(r.get("waiver_count", 0) + r.get("violation_count", 0) for r in rev_results)
-            progress = (processed / total_rows * 100) if total_rows > 0 else 0
-            avg_violations = sum(r.get("violation_count", 0) for r in rev_results) / len(rev_results)
-        else:
-            progress = 0
-            avg_violations = 0
-        
-        color = "green" if progress >= 90 else "yellow" if progress >= 50 else "red"
-        
-        cards.append(
-            dmc.Paper([
-                dmc.Group([
-                    dmc.Text(rev["name"], fw=700, size="lg"),
-                    dmc.Badge(f"{progress:.1f}%", color=color, size="lg")
-                ], justify="space-between"),
-                dmc.Progress(value=progress, color=color, size="lg", mt="sm"),
-                dmc.Group([
-                    dmc.Text(f"Results: {len(rev_results)}", size="xs", c="dimmed"),
-                    dmc.Text(f"Avg Violations: {avg_violations:.0f}", size="xs", c="dimmed")
-                ], mt="sm", justify="space-between")
-            ], p="md", withBorder=True, mb="sm")
-        )
-    
-    return dmc.Stack(cards)
-
-@app.callback(
-    Output("analysis-critical-content", "children"),
-    Input("store-trigger", "data")
-)
-def update_critical_path(trigger):
-    """Violation이 많은 Block/Task 표시"""
-    if not store.results:
-        return dmc.Alert("결과 데이터가 없습니다.", color="blue")
-    
-    # Sort results by violation count
-    sorted_results = sorted(store.results, key=lambda r: r.get("violation_count", 0), reverse=True)
-    
-    items = []
-    for res in sorted_results[:10]:
-        job = next((j for j in store.jobs if j["id"] == res["job_id"]), None)
-        task = next((t for t in store.tasks if job and t["id"] == job["task_id"]), None)
-        block = next((b for b in store.blocks if task and b["id"] == task["block_id"]), None)
-        app = next((a for a in store.signoff_apps if task and a["id"] == task["app_id"]), None)
-        
-        violations = res.get("violation_count", 0)
-        total = res.get("total_rows", 100)
-        
-        items.append(
-            dmc.Paper([
-                dmc.Group([
-                    dmc.Badge(block["name"] if block else "?", color="blue"),
-                    dmc.Badge(app["name"] if app else "?", color="teal"),
-                    dmc.Text(f"{violations} violations", c="red", fw=500)
-                ]),
-                dmc.Progress(
-                    value=(violations / total * 100) if total > 0 else 0,
-                    color="red",
-                    size="sm",
-                    mt="xs"
-                )
-            ], p="sm", withBorder=True, mb="xs")
-        )
-    
-    return dmc.Stack([
-        dmc.Title("Top 10 High-Violation Results", order=4, mb="sm"),
-        *items
-    ])
-
-@app.callback(
-    Output("analysis-timeline-content", "children"),
-    Input("store-trigger", "data")
-)
-def update_timeline(trigger):
-    """Job 실행 시간 타임라인"""
-    if not store.jobs:
-        return dmc.Alert("Job 데이터가 없습니다.", color="blue")
-    
-    # Sort jobs by start time
-    sorted_jobs = sorted(store.jobs, key=lambda j: j.get("start_time", ""), reverse=True)
-    
-    items = []
-    for job in sorted_jobs[:15]:
-        task = next((t for t in store.tasks if t["id"] == job["task_id"]), None)
-        
-        start = job.get("start_time", "")[:19] if job.get("start_time") else "N/A"
-        end = job.get("end_time", "")[:19] if job.get("end_time") else "실행중"
-        status_color = "green" if job["status"] == "완료" else "blue"
-        
-        items.append(
-            dmc.Paper([
-                dmc.Group([
-                    dmc.Badge(job["status"], color=status_color, size="sm"),
-                    dmc.Text(job["id"], size="sm", fw=500)
-                ]),
-                dmc.Text(f"시작: {start}", size="xs", c="dimmed"),
-                dmc.Text(f"종료: {end}", size="xs", c="dimmed"),
-                dmc.Text(f"경로: {job.get('workspace_dir', 'N/A')}", size="xs", c="dimmed", style={"wordBreak": "break-all"})
-            ], p="sm", withBorder=True, mb="xs")
-        )
-    
-    return dmc.Stack([dmc.Title("최근 Job 실행 이력", order=4, mb="sm"), *items])
-
-@app.callback(
-    Output("analysis-query-results", "children"),
-    Input("btn-advanced-query", "n_clicks"),
-    [State("query-revision-select", "value"), State("query-status-filter", "value"), State("query-keyword", "value")],
-    prevent_initial_call=True
-)
-def do_advanced_query(n_clicks, revision_id, status_filter, keyword):
-    """조건부 검색"""
-    results = []
-    
-    for task in store.tasks:
-        # Filter by revision
-        if revision_id:
-            block = next((b for b in store.blocks if b["id"] == task["block_id"]), None)
-            if not block or block["revision_id"] != revision_id:
-                continue
-        
-        # Filter by status
-        if status_filter and task["status"] != status_filter:
-            continue
-        
-        # Filter by keyword
-        if keyword and keyword.lower() not in task["id"].lower():
-            continue
-        
-        results.append(task)
-    
-    if not results:
-        return dmc.Alert("검색 결과가 없습니다.", color="gray")
-    
-    items = []
-    for task in results[:20]:
-        items.append(
-            dmc.Paper([
-                dmc.Group([
-                    dmc.Badge(task["status"], 
-                             color="green" if task["status"] == "완료" else "yellow" if task["status"] == "실행중" else "gray",
-                             size="sm"),
-                    dmc.Text(task["id"], size="sm", fw=500)
-                ]),
-                dmc.Text(f"Block: {task['block_id']}", size="xs", c="dimmed"),
-                dmc.Text(f"App: {task['app_id']}", size="xs", c="dimmed")
-            ], p="sm", withBorder=True, mb="xs")
-        )
-    
-    return dmc.Stack([dmc.Text(f"{len(results)}개 결과", size="sm", c="dimmed", mb="sm"), *items])
+def export_json(n):
+    if n:
+        content = store.to_json_graphrag()
+        return dict(content=content, filename="signoff_ontology.json")
+    return None
 
 
+# --- Run Server ---
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Load default scenario
+    store.load_template("full_lifecycle")
+    app.run(debug=True, port=8050)
