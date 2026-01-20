@@ -63,25 +63,31 @@ graph_stylesheet = [
 # --- Sidebar ---
 def create_sidebar():
     return dmc.Stack([
-        dmc.Title("Signoff Ontology", order=3, c="white"),
+        dmc.Title("Signoff Ontology", order=3, c="blue"),
         dmc.Text("POC Demo", size="sm", c="dimmed"),
         dmc.Divider(my="md"),
         
-        # Navigation
-        dmc.NavLink(label="🏗️ Builder", href="/", active=True, id="nav-builder"),
-        dmc.NavLink(label="🗺️ Graph", href="/graph", id="nav-graph"),
-        dmc.NavLink(label="📊 Explorer", href="/explorer", id="nav-explorer"),
-        dmc.NavLink(label="📈 Dashboard", href="/dashboard", id="nav-dashboard"),
-        dmc.NavLink(label="🔄 Compare", href="/compare", id="nav-compare"),
+        # Navigation - active 상태는 콜백에서 동적으로 설정
+        dmc.Text("Pages", size="xs", fw=600, c="dimmed", mb="xs"),
+        dmc.NavLink(label="🏗️ Builder", href="/", id="nav-builder",
+                    variant="filled", color="blue"),
+        dmc.NavLink(label="🗺️ Graph", href="/graph", id="nav-graph",
+                    variant="filled", color="cyan"),
+        dmc.NavLink(label="📊 Explorer", href="/explorer", id="nav-explorer",
+                    variant="filled", color="teal"),
+        dmc.NavLink(label="📈 Dashboard", href="/dashboard", id="nav-dashboard",
+                    variant="filled", color="green"),
+        dmc.NavLink(label="🔄 Compare", href="/compare", id="nav-compare",
+                    variant="filled", color="orange"),
         
         dmc.Divider(my="md"),
         
         # Scenario Buttons
-        dmc.Text("Mock 데이터 시나리오", size="sm", fw=600, c="dimmed"),
-        dmc.Button("A. Full Lifecycle (R00→R60)", id="btn-scenario-a", variant="light", fullWidth=True, mb="xs"),
-        dmc.Button("B. R40 상세 (5 Apps)", id="btn-scenario-b", variant="light", fullWidth=True, mb="xs"),
-        dmc.Button("C. R30→R40 Compare", id="btn-scenario-c", variant="light", fullWidth=True, mb="xs"),
-        dmc.Button("Clear All", id="btn-clear", variant="outline", color="red", fullWidth=True, mt="md"),
+        dmc.Text("Mock 데이터 시나리오", size="xs", fw=600, c="dimmed", mb="xs"),
+        dmc.Button("A. Full Lifecycle (R00→R60)", id="btn-scenario-a", variant="light", color="indigo", fullWidth=True, mb="xs", size="xs"),
+        dmc.Button("B. R40 상세 (5 Apps)", id="btn-scenario-b", variant="light", color="violet", fullWidth=True, mb="xs", size="xs"),
+        dmc.Button("C. R30→R40 Compare", id="btn-scenario-c", variant="light", color="grape", fullWidth=True, mb="xs", size="xs"),
+        dmc.Button("Clear All", id="btn-clear", variant="outline", color="red", fullWidth=True, mt="md", size="xs"),
         
         dmc.Divider(my="md"),
         
@@ -91,11 +97,16 @@ def create_sidebar():
         dmc.Divider(my="md"),
         
         # Export Buttons
-        dmc.Text("Export", size="sm", fw=600, c="dimmed"),
-        dmc.Button("📥 JSON (GraphRAG)", id="btn-export-json", variant="subtle", fullWidth=True, size="xs"),
+        dmc.Text("Export", size="xs", fw=600, c="dimmed", mb="xs"),
+        dmc.Button("📥 JSON (GraphRAG)", id="btn-export-json", variant="light", color="blue", fullWidth=True, size="xs"),
         dcc.Download(id="download-json"),
         
-    ], gap="xs", p="md", style={"height": "100vh", "backgroundColor": "#1a1b1e"})
+    ], gap="xs", p="md", style={
+        "height": "100vh", 
+        "backgroundColor": "#e9ecef",  # 좀 더 어두운 회색 배경
+        "overflowY": "auto",
+        "borderRight": "1px solid #ced4da"  # 구분선
+    })
 
 
 # --- Page: Builder ---
@@ -360,6 +371,25 @@ def render_page(pathname):
         return create_compare_page()
     else:
         return create_builder_page()
+
+
+# --- NavLink Active State ---
+@callback(
+    Output("nav-builder", "active"),
+    Output("nav-graph", "active"),
+    Output("nav-explorer", "active"),
+    Output("nav-dashboard", "active"),
+    Output("nav-compare", "active"),
+    Input("url", "pathname")
+)
+def update_nav_active(pathname):
+    return (
+        pathname == "/" or pathname == "",
+        pathname == "/graph",
+        pathname == "/explorer",
+        pathname == "/dashboard",
+        pathname == "/compare"
+    )
 
 
 # --- Scenario Loading ---
