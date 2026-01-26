@@ -1,0 +1,11 @@
+0. Summary
+구분내용보고 목적: "Human-Out-of-the-Loop Signoff" 실현을 위한 Ontology 기반 차세대 Signoff Platform 구축 계획 보고Signoff AI Agent의 핵심 기반 인프라인 Signoff Ontology 구축 전략 및 추진 계획 공유
+
+현황 및 문제점현재:  Signoff Platform은 "데이터"는 저장하지만 "의미"는 저장하지 않음→ AI가 Signoff 업무의 맥락을 이해할 수 없어 End-to-End 통합 자동화가 구조적으로 불가능
+구분As-Is (Without Ontology)To-Be (With Ontology)Workflow Management파편화된 Tool별 개별 수행, Human Error 빈발, 반복 문의1-Click Signoff, Coverage 향상, AI-Assisted 의사결정Data ManagementApplication별 결과 개별 확인, 전체 현황 파악 불가통합 Dashboard, 이종 Tool 간 상관관계 분석
+
+결론 및 제언: Signoff Ontology = AI Agent가 Signoff 업무를 이해하기 위한 공통 언어이자 기반 인프라Ontology 없이도 개별 자동화는 가능하나, 시간이 오래 걸리고 확장/유지보수가 어려움→ Signoff AI Agent 구현을 위해 Ontology 기반 플랫폼 구축이 선행 필수 조건
+
+주요 내용: 1. Signoff Workflow 현황 및 구조적 한계• Signoff Platform 현황: SOL(실행) ↔ SORV(분석) 이원화 구조• 식별된 문제점: Data Silo, Operation Silo, Decision Silo2. Ontology 기술 개요• 왜 Ontology인가?: LLM 단독 적용의 한계, Palantir 온톨로지 기반 접근법• Ontology란?: 데이터 간 의미를 정의하여 AI가 이해 가능한 Knowledge Graph 구축• Ontology 성공 사례: Palantir 실제 적용 사례 및 기대 효과3. Signoff Ontology 구축 전략• Signoff 도메인 적용 예시 및 3-Layer 구조 설계• Lifecycle 기반 데이터 흐름: Initiation → Execution → Analysis
+
+향후 계획: Phase 1 (~2026.03): Ontology 설계 및 기반 구축• Signoff Ontology 스키마 설계 (11개 Object Type)• Ontology 기반 Launcher 연동 PoC, 데이터 생성 검증Phase 2 (~2026.09): Ontology 기반 ResultViewer + Dashboard 개발Phase 3 (~2026.12): AI Agent 연동, Event-Driven 자동 Signoff PoC

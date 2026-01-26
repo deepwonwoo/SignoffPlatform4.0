@@ -1,18 +1,26 @@
 """
-Signoff Ontology Store - 10개 핵심 Object Type 구현
+Signoff Ontology Store - 13개 Object Type 구현 (v2.0)
 Based on: updated_Signoff Platform Ontology.md
 
-Objects:
-  1. Product - 제품 정보
-  2. Revision - 설계 버전 (R00~R60)
-  3. Block - 회로 블록
-  4. SignoffApplication - 검증 도구 (DSC, LSC, LS, PEC, CANATR, CDA)
-  5. SignoffTask - 작업 정의
-  6. SignoffJob - 실행 인스턴스
-  7. InputConfig - 입력 설정
-  8. Workspace - 작업 공간
-  9. Result - 검증 결과 (WAIVER/FIXED/PENDING)
-  10. Designer - 사용자
+3-Layer Architecture:
+  Semantic Layer (7개):
+    1. Product - 제품 정보
+    2. Revision - 설계 버전 (R00~R60)
+    3. Block - 회로 블록
+    4. Designer - 사용자
+    5. SignoffApplication - 검증 도구 (19종)
+    6. CriteriaSet - 판정 기준
+    7. Workspace - 작업 공간
+    
+  Kinetic Layer (2개):
+    8. SignoffJob - 실행 이벤트 (InputConfig 통합)
+    9. Result - 검증 결과
+    
+  Dynamic Layer (4개):
+    10. CategorizePart - 담당자 지정
+    11. CompareResult - Revision 간 비교
+    12. WaiverDecision - Waiver 판단 이력
+    13. SignoffIssue - 문의/이슈 이력
 """
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -22,59 +30,118 @@ import uuid
 
 
 class SignoffOntologyStore:
-    """Signoff Ontology - 10개 핵심 Object Type 관리"""
+    """Signoff Ontology - 13개 핵심 Object Type 관리 (3-Layer Architecture)"""
+    
+    # ========== LAYER DEFINITIONS ==========
+    LAYERS = {
+        "Semantic": ["Product", "Revision", "Block", "Designer", "SignoffApplication", "CriteriaSet", "Workspace"],
+        "Kinetic": ["SignoffJob", "Result"],
+        "Dynamic": ["CategorizePart", "CompareResult", "WaiverDecision", "SignoffIssue"]
+    }
     
     # Object 유형별 색상 (시각화용)
     COLORS = {
-        "Product": "#4263eb",           # 파란색
+        # Semantic Layer - Blue/Yellow 계열
+        "Product": "#4263eb",
         "Revision": "#5c7cfa",
         "Block": "#748ffc",
-        "SignoffApplication": "#20c997", # 초록색
-        "SignoffTask": "#38d9a9",
-        "SignoffJob": "#63e6be",
-        "InputConfig": "#ffd43b",        # 노란색
-        "Workspace": "#fab005",
-        "Result": "#ff6b6b",             # 빨간색
-        "Designer": "#9775fa",           # 보라색
+        "Designer": "#fab005",
+        "SignoffApplication": "#fd7e14",
+        "CriteriaSet": "#e8590c",
+        "Workspace": "#fcc419",
+        # Kinetic Layer - Green 계열
+        "SignoffJob": "#40c057",
+        "Result": "#69db7c",
+        # Dynamic Layer - Pink/Purple 계열
+        "CategorizePart": "#f06595",
+        "CompareResult": "#e64980",
+        "WaiverDecision": "#be4bdb",
+        "SignoffIssue": "#9c36b5",
+    }
+    
+    # Object Type별 아이콘
+    ICONS = {
+        "Product": "📦",
+        "Revision": "📋",
+        "Block": "🔲",
+        "Designer": "👤",
+        "SignoffApplication": "🔧",
+        "CriteriaSet": "📏",
+        "Workspace": "📁",
+        "SignoffJob": "⚡",
+        "Result": "📊",
+        "CategorizePart": "👥",
+        "CompareResult": "🔄",
+        "WaiverDecision": "✅",
+        "SignoffIssue": "❓",
     }
     
     # 레이어 순서 (그래프 레이아웃용)
-    LAYER_ORDER = ["Product", "Revision", "Block", "Designer", "SignoffApplication",
-                   "SignoffTask", "InputConfig", "SignoffJob", "Workspace", "Result"]
+    LAYER_ORDER = ["Product", "Revision", "Block", "Designer", "SignoffApplication", 
+                   "CriteriaSet", "Workspace", "SignoffJob", "Result", 
+                   "CategorizePart", "CompareResult", "WaiverDecision", "SignoffIssue"]
     
-    # 6개 핵심 Application
+    # 19개 Signoff Application 목록
     APPLICATIONS = [
-        {"app_id": "DSC", "app_name": "Driver Size Check", "app_group": "Static", 
-         "engine_type": "SPACE", "comparison_key": "measure_net + driver_net",
-         "required_inputs": ["NETLIST", "EDR", "MP", "POWER"]},
-        {"app_id": "LSC", "app_name": "Latch Strength Check", "app_group": "Static",
-         "engine_type": "SPACE", "comparison_key": "latch_name + input_pin",
-         "required_inputs": ["NETLIST", "EDR", "MP", "POWER"]},
-        {"app_id": "LS", "app_name": "Level Shifter Check", "app_group": "Static",
-         "engine_type": "SPACE", "comparison_key": "ls_name + input_net",
-         "required_inputs": ["NETLIST", "EDR", "MP", "POWER"]},
-        {"app_id": "PEC", "app_name": "Power Error Check", "app_group": "Static",
-         "engine_type": "SPACE", "comparison_key": "net_name + error_type",
-         "required_inputs": ["NETLIST", "MP", "POWER"]},
-        {"app_id": "CANATR", "app_name": "Coupling Noise Analysis", "app_group": "Static",
-         "engine_type": "SPACE", "comparison_key": "victim_net + aggressor_net",
-         "required_inputs": ["NETLIST", "SPF", "POWER"]},
-        {"app_id": "CDA", "app_name": "Coupling Delay Analyzer", "app_group": "Static",
-         "engine_type": "SPACE", "comparison_key": "path_name + coupling_net",
-         "required_inputs": ["NETLIST", "SPF", "POWER", "VERILOG"]},
+        {"app_id": "DSC", "app_name": "Driver Size Check", "app_group": "STATIC", 
+         "engine_type": "SPACE", "comparison_key": "measure_net,driver_nmos",
+         "supported_pvt_corners": ["SSPLVCT", "SSPLVHT"]},
+        {"app_id": "LSC", "app_name": "Latch Setup Check", "app_group": "STATIC",
+         "engine_type": "SPACE", "comparison_key": "master,latch_name",
+         "supported_pvt_corners": ["SFLVCT", "FSLVCT"]},
+        {"app_id": "LS", "app_name": "Level Shifter", "app_group": "STATIC",
+         "engine_type": "SPACE", "comparison_key": "master",
+         "supported_pvt_corners": ["SFLVCT", "FSLVCT"]},
+        {"app_id": "CANATR", "app_name": "Coupling Analysis TR", "app_group": "STATIC",
+         "engine_type": "SPACE", "comparison_key": "victim_net,aggressor_net",
+         "supported_pvt_corners": ["FFPHVHT"]},
+        {"app_id": "CDA", "app_name": "Coupling Delay Analysis", "app_group": "TIMING",
+         "engine_type": "SPACE", "comparison_key": "victim_net,aggressor_net",
+         "supported_pvt_corners": ["SSPLVCT"]},
+        {"app_id": "PEC", "app_name": "Power/ESD Checker", "app_group": "PRE_LAYOUT",
+         "engine_type": "SPACE", "comparison_key": "unit_name,msg",
+         "supported_pvt_corners": ["TTTVCT"]},
+        {"app_id": "PNRATIO", "app_name": "PN Ratio Checker", "app_group": "PRE_LAYOUT",
+         "engine_type": "PERC", "comparison_key": "inst_name,cell_name",
+         "supported_pvt_corners": ["SSPLVCT"]},
+        {"app_id": "FANOUT", "app_name": "Fan-Out Checker", "app_group": "PRE_LAYOUT",
+         "engine_type": "PERC", "comparison_key": "drv_net",
+         "supported_pvt_corners": ["SSPLVCT"]},
+        {"app_id": "DCPATH", "app_name": "DC Path Checker", "app_group": "STATIC",
+         "engine_type": "PRIMESIM", "comparison_key": "path_id,node",
+         "supported_pvt_corners": ["TTTVCT"]},
+        {"app_id": "FLOATNODE", "app_name": "Floating Node Checker", "app_group": "PRE_LAYOUT",
+         "engine_type": "SPACE", "comparison_key": "node_name",
+         "supported_pvt_corners": ["TTTVCT"]},
+        {"app_id": "ADV_MARGIN", "app_name": "ADV Margin Analyzer", "app_group": "DYNAMIC",
+         "engine_type": "ADV", "comparison_key": "name,fullmaster",
+         "supported_pvt_corners": ["SSPLVCT", "FFPHVHT"]},
+        {"app_id": "DRIVER_KEEPER", "app_name": "Driver Keeper", "app_group": "DYNAMIC",
+         "engine_type": "ADV", "comparison_key": "instance_name,target_master",
+         "supported_pvt_corners": ["SFLVCT", "FSLVCT"]},
+        {"app_id": "GLITCH", "app_name": "Glitch Margin Check", "app_group": "DYNAMIC",
+         "engine_type": "ADV", "comparison_key": "name,fullmaster",
+         "supported_pvt_corners": ["SSPLVCT", "FFPHVHT"]},
     ]
     
     # Revision Phases
     REVISION_PHASES = ["R00", "R10", "R20", "R30", "R40", "R50", "R60"]
     
-    # Realistic Block Names
-    BLOCK_TYPES = [
-        "FULLCHIP", "PAD", 
-        "BANTI_DC", "BTSV_16CH_B", "BTSV_4CH_B", 
-        "BPHY_MID_B", "BPHY_1CH_B"
+    # Revision별 설계 단계
+    DESIGN_STAGES = {
+        "R00": "SCHEMATIC_ONLY", "R10": "SCHEMATIC_ONLY",
+        "R20": "PRE_LAYOUT", 
+        "R30": "POST_LAYOUT", "R40": "POST_LAYOUT",
+        "R50": "POST_LAYOUT", "R60": "POST_LAYOUT"
+    }
+    
+    # Block Names (Realistic)
+    BLOCK_NAMES = [
+        "FULLCHIP", "PAD", "BANTI_DC", "BTSV_16CH_B", "BTSV_4CH_B", 
+        "BPHY_MID_B", "BPHY_1CH_B", "CORE", "IO_PHY", "PMIC"
     ]
     
-    # PVT Corners (Process_Voltage_Temperature)
+    # PVT Corners
     PVT_CORNERS = [
         {"name": "SSPLVCT", "process": "SS", "voltage": "LV", "temp": "CT", "desc": "Slow/LowVolt/Cold"},
         {"name": "SSPLVHT", "process": "SS", "voltage": "LV", "temp": "HT", "desc": "Slow/LowVolt/Hot"},
@@ -84,27 +151,34 @@ class SignoffOntologyStore:
         {"name": "TTTVCT", "process": "TT", "voltage": "TV", "temp": "CT", "desc": "Typical/TypicalVolt/Cold"},
     ]
     
-    # Designer 목록 (실제 팀원 이름)
+    # Designer 목록
     DESIGNERS_LIST = [
-        {"id": "wonwoo", "name": "최원우", "role": "DEVELOPER"},
-        {"id": "minji", "name": "권민지", "role": "DEVELOPER"},
-        {"id": "kwangsun", "name": "김광선", "role": "ENGINEER"},
-        {"id": "jinho", "name": "김진호", "role": "ENGINEER"},
-        {"id": "hyungjung", "name": "서형중", "role": "ENGINEER"},
-        {"id": "jieun", "name": "오지은", "role": "ENGINEER"},
-        {"id": "changwoo", "name": "유창우", "role": "LEAD"},
-        {"id": "sunghan", "name": "이성한", "role": "ENGINEER"},
-        {"id": "sungju", "name": "이성주", "role": "MANAGER"},
+        {"id": "wonwoo", "name": "최원우", "role": "DEVELOPER", "team": "Signoff Platform Team"},
+        {"id": "minji", "name": "권민지", "role": "DEVELOPER", "team": "Signoff Platform Team"},
+        {"id": "kwangsun", "name": "김광선", "role": "ENGINEER", "team": "HBM Design Team"},
+        {"id": "jinho", "name": "김진호", "role": "ENGINEER", "team": "HBM Design Team"},
+        {"id": "hyungjung", "name": "서형중", "role": "ENGINEER", "team": "HBM Design Team"},
+        {"id": "jieun", "name": "오지은", "role": "ENGINEER", "team": "DDR Design Team"},
+        {"id": "changwoo", "name": "유창우", "role": "LEAD", "team": "HBM Design Team"},
+        {"id": "sunghan", "name": "이성한", "role": "ENGINEER", "team": "DDR Design Team"},
+        {"id": "sungju", "name": "이성주", "role": "MANAGER", "team": "Signoff Management"},
     ]
     
-    # Application 수행 가능 Revision (문서 3.2.2 참고)
+    # Application 수행 가능 Revision
     APP_AVAILABILITY = {
-        "PEC": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],  # 모든 Revision
-        "DSC": ["R20", "R30", "R40", "R50", "R60"],  # R20부터
-        "LSC": ["R10", "R20", "R30", "R40", "R50", "R60"],  # R10부터
-        "LS": ["R20", "R30", "R40", "R50", "R60"],  # R20부터
-        "CANATR": ["R40", "R50", "R60"],  # R40부터
-        "CDA": ["R50", "R60"],  # R50부터
+        "PEC": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],
+        "PNRATIO": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],
+        "FANOUT": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],
+        "FLOATNODE": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],
+        "LSC": ["R10", "R20", "R30", "R40", "R50", "R60"],
+        "DSC": ["R20", "R30", "R40", "R50", "R60"],
+        "LS": ["R20", "R30", "R40", "R50", "R60"],
+        "DCPATH": ["R20", "R30", "R40", "R50", "R60"],
+        "CANATR": ["R40", "R50", "R60"],
+        "CDA": ["R50", "R60"],
+        "ADV_MARGIN": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],
+        "DRIVER_KEEPER": ["R00", "R10", "R20", "R30", "R40", "R50", "R60"],
+        "GLITCH": ["R50", "R60"],
     }
     
     def __init__(self):
@@ -112,793 +186,893 @@ class SignoffOntologyStore:
     
     def clear_all(self):
         """모든 데이터 초기화"""
+        # Semantic Layer
         self.products: List[Dict] = []
         self.revisions: List[Dict] = []
         self.blocks: List[Dict] = []
-        self.signoff_applications: List[Dict] = []
-        self.signoff_tasks: List[Dict] = []
-        self.signoff_jobs: List[Dict] = []
-        self.input_configs: List[Dict] = []
-        self.workspaces: List[Dict] = []
-        self.results: List[Dict] = []
         self.designers: List[Dict] = []
+        self.signoff_applications: List[Dict] = []
+        self.criteria_sets: List[Dict] = []
+        self.workspaces: List[Dict] = []
+        # Kinetic Layer
+        self.signoff_jobs: List[Dict] = []
+        self.results: List[Dict] = []
+        # Dynamic Layer
+        self.categorize_parts: List[Dict] = []
+        self.compare_results: List[Dict] = []
+        self.waiver_decisions: List[Dict] = []
+        self.signoff_issues: List[Dict] = []
     
-    # ========== CRUD: Product ==========
+    # ========== SEMANTIC LAYER: CRUD ==========
+    
     def add_product(self, product_id: str, product_name: str = None, 
-                    product_type: str = "HBM") -> Optional[Dict]:
+                    product_type: str = "HBM", technology_node: str = "4nm",
+                    status: str = "ACTIVE") -> Optional[Dict]:
         """Product 추가"""
         if any(p["product_id"] == product_id for p in self.products):
             return None
-        
         product = {
             "product_id": product_id,
-            "product_name": product_name or product_id,
+            "product_name": product_name or f"{product_id} Memory",
             "product_type": product_type,
+            "technology_node": technology_node,
+            "status": status,
+            "tapeout_target_date": "2026-06-30",
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "_type": "Product"
         }
         self.products.append(product)
         return product
     
-    # ========== CRUD: Revision ==========
-    def add_revision(self, revision_id: str, product_id: str, revision_phase: str,
-                     signoff_status: str = "NOT_STARTED",
+    def add_revision(self, revision_id: str, product_id: str, revision_code: str,
+                     design_stage: str = None, status: str = "NOT_STARTED",
                      required_applications: List[str] = None,
-                     previous_revision_id: str = None,
-                     due_date: str = None) -> Optional[Dict]:
+                     netlist_version: str = None) -> Optional[Dict]:
         """Revision 추가"""
-        if not any(p["product_id"] == product_id for p in self.products):
-            return None
         if any(r["revision_id"] == revision_id for r in self.revisions):
             return None
-        
         revision = {
             "revision_id": revision_id,
             "product_id": product_id,
-            "revision_phase": revision_phase,
-            "signoff_status": signoff_status,  # NOT_STARTED, IN_PROGRESS, COMPLETED
-            "required_applications": required_applications or ["DSC", "LSC", "LS", "PEC", "CANATR", "CDA"],
-            "previous_revision_id": previous_revision_id,
-            "due_date": due_date,
+            "revision_code": revision_code,
+            "design_stage": design_stage or self.DESIGN_STAGES.get(revision_code, "POST_LAYOUT"),
+            "status": status,
+            "required_applications": required_applications or [],
+            "netlist_version": netlist_version or "v1.0",
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "_type": "Revision"
         }
         self.revisions.append(revision)
         return revision
     
-    # ========== CRUD: Block ==========
     def add_block(self, block_id: str, revision_id: str, block_name: str,
-                  netlist_path: str = None, top_subckt: str = None,
-                  instance_count: int = None) -> Optional[Dict]:
+                  block_type: str = "TOP", hierarchy_path: str = None,
+                  designer_id: str = None) -> Optional[Dict]:
         """Block 추가"""
-        if not any(r["revision_id"] == revision_id for r in self.revisions):
-            return None
         if any(b["block_id"] == block_id for b in self.blocks):
             return None
-        
         block = {
             "block_id": block_id,
             "revision_id": revision_id,
             "block_name": block_name,
-            "netlist_path": netlist_path or f"/data/netlist/{block_name.lower()}.star",
-            "top_subckt": top_subckt or f"{block_name}_TOP",
-            "instance_count": instance_count or random.randint(100000, 5000000),
+            "block_type": block_type,
+            "hierarchy_path": hierarchy_path or f"/{block_name}",
+            "designer_id": designer_id,
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "_type": "Block"
         }
         self.blocks.append(block)
         return block
     
-    # ========== CRUD: SignoffApplication ==========
-    def add_signoff_application(self, app_id: str, app_name: str = None,
-                                 app_group: str = "Static", engine_type: str = "SPACE",
-                                 comparison_key: str = None,
-                                 required_inputs: List[str] = None) -> Optional[Dict]:
-        """SignoffApplication 추가"""
-        if any(a["app_id"] == app_id for a in self.signoff_applications):
-            return None
-        
-        # 기본 Application 정보 찾기
-        default = next((a for a in self.APPLICATIONS if a["app_id"] == app_id), None)
-        
-        app = {
-            "app_id": app_id,
-            "app_name": app_name or (default["app_name"] if default else app_id),
-            "app_group": app_group,
-            "engine_type": engine_type,
-            "comparison_key": comparison_key or (default["comparison_key"] if default else ""),
-            "required_inputs": required_inputs or (default["required_inputs"] if default else []),
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "_type": "SignoffApplication"
-        }
-        self.signoff_applications.append(app)
-        return app
-    
-    # ========== CRUD: Designer ==========
     def add_designer(self, designer_id: str, name: str = None,
                      email: str = None, team: str = None,
                      role: str = "ENGINEER") -> Optional[Dict]:
         """Designer 추가"""
         if any(d["designer_id"] == designer_id for d in self.designers):
             return None
-        
         designer = {
             "designer_id": designer_id,
             "name": name or designer_id,
-            "email": email or f"{designer_id}@samsung.com",
-            "team": team or "Design Simulation & Signoff Group",
-            "role": role,  # ENGINEER, LEAD, MANAGER, DEVELOPER
+            "email": email or f"{designer_id}@company.com",
+            "team": team or "Design Team",
+            "role": role,
+            "is_active": True,
             "created_at": datetime.now().isoformat(),
-            "_type": "Designer"
         }
         self.designers.append(designer)
         return designer
     
-    # ========== CRUD: InputConfig ==========
-    def add_input_config(self, config_id: str, task_id: str,
-                         netlist_file: str = None, edr_file: str = None,
-                         mp_file: str = None, power_definition: Dict = None,
-                         validation_status: str = "NOT_VALIDATED",
-                         base_config_id: str = None) -> Optional[Dict]:
-        """InputConfig 추가"""
-        if any(c["config_id"] == config_id for c in self.input_configs):
+    def add_signoff_application(self, app_id: str, app_name: str = None,
+                                app_group: str = "STATIC", engine_type: str = "SPACE",
+                                comparison_key: str = None,
+                                supported_pvt_corners: List[str] = None) -> Optional[Dict]:
+        """SignoffApplication 추가"""
+        if any(a["app_id"] == app_id for a in self.signoff_applications):
             return None
-        
-        config = {
-            "config_id": config_id,
-            "task_id": task_id,
-            "netlist_file": netlist_file or "/path/to/netlist.star",
-            "edr_file": edr_file or "/path/to/edr_file",
-            "mp_file": mp_file or "/path/to/mp_file",
-            "power_definition": power_definition or {"VDD": ["VDD_CORE", "VDD_IO"], "GND": ["VSS"]},
-            "additional_options": {},
-            "validation_status": validation_status,  # NOT_VALIDATED, VALIDATED, ERROR
-            "base_config_id": base_config_id,
-            "created_at": datetime.now().isoformat(),
-            "_type": "InputConfig"
-        }
-        self.input_configs.append(config)
-        return config
-    
-    # ========== CRUD: SignoffTask ==========
-    def add_signoff_task(self, task_id: str, revision_id: str, block_id: str,
-                          app_id: str, owner_id: str = None,
-                          pvt_corner: Dict = None,
-                          status: str = "DEFINED") -> Optional[Dict]:
-        """SignoffTask 추가"""
-        if any(t["task_id"] == task_id for t in self.signoff_tasks):
-            return None
-        
-        task = {
-            "task_id": task_id,
-            "revision_id": revision_id,
-            "block_id": block_id,
+        app = {
             "app_id": app_id,
-            "owner_id": owner_id,
-            "pvt_corner": pvt_corner or {"process": "SS", "voltage": "LV", "temp": "CT"},
-            "status": status,  # DEFINED, IN_PROGRESS, COMPLETED, BLOCKED
+            "app_name": app_name or app_id,
+            "app_group": app_group,
+            "engine_type": engine_type,
+            "comparison_key": comparison_key or "default_key",
+            "supported_pvt_corners": supported_pvt_corners or ["SSPLVCT"],
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "_type": "SignoffTask"
         }
-        self.signoff_tasks.append(task)
-        
-        # InputConfig 자동 생성
-        config_id = f"CONFIG_{task_id}"
-        self.add_input_config(config_id, task_id)
-        
-        return task
+        self.signoff_applications.append(app)
+        return app
     
-    # ========== CRUD: Workspace ==========
-    def add_workspace(self, workspace_id: str, job_id: str,
-                       local_path: str = None, central_path: str = None,
-                       uploaded: str = "NOT_UPLOADED") -> Optional[Dict]:
+    def add_criteria_set(self, criteria_id: str, app_id: str, criteria_name: str = None,
+                         criteria_type: str = "TAPEOUT", version: str = "v1.0",
+                         rules: Dict = None) -> Optional[Dict]:
+        """CriteriaSet 추가"""
+        if any(c["criteria_id"] == criteria_id for c in self.criteria_sets):
+            return None
+        criteria = {
+            "criteria_id": criteria_id,
+            "app_id": app_id,
+            "criteria_name": criteria_name or f"{app_id} Criteria {version}",
+            "criteria_type": criteria_type,
+            "version": version,
+            "rules": rules or {"fail_conditions": [], "warning_conditions": []},
+            "is_active": True,
+            "created_at": datetime.now().isoformat(),
+        }
+        self.criteria_sets.append(criteria)
+        return criteria
+    
+    def add_workspace(self, workspace_id: str, workspace_type: str = "LOCAL",
+                      base_path: str = None, product_id: str = None,
+                      owner_id: str = None) -> Optional[Dict]:
         """Workspace 추가"""
         if any(w["workspace_id"] == workspace_id for w in self.workspaces):
             return None
-        
         workspace = {
             "workspace_id": workspace_id,
-            "job_id": job_id,
-            "local_path": local_path or f"/user/signoff/job_{job_id}/",
-            "central_path": central_path or f"/WORKSPACE/job_{job_id}/",
-            "uploaded": uploaded,  # NOT_UPLOADED, UPLOADED, UPLOAD_FAILED
-            "uploaded_time": None,
+            "workspace_type": workspace_type,
+            "base_path": base_path or f"/workspace/{workspace_id}",
+            "product_id": product_id,
+            "owner_id": owner_id,
+            "is_synced": False,
             "created_at": datetime.now().isoformat(),
-            "_type": "Workspace"
         }
         self.workspaces.append(workspace)
         return workspace
     
-    # ========== CRUD: SignoffJob ==========
-    def add_signoff_job(self, job_id: str, task_id: str,
-                         lsf_job_id: str = None,
-                         status: str = "PENDING") -> Optional[Dict]:
-        """SignoffJob 추가"""
-        task = next((t for t in self.signoff_tasks if t["task_id"] == task_id), None)
-        if not task:
-            return None
+    # ========== KINETIC LAYER: CRUD ==========
+    
+    def add_signoff_job(self, job_id: str, revision_id: str, block_id: str,
+                        app_id: str, executed_by: str = None,
+                        criteria_id: str = None, workspace_id: str = None,
+                        pvt_corner: str = "SSPLVCT",
+                        netlist_path: str = None, power_definition: Dict = None,
+                        status: str = "PENDING") -> Optional[Dict]:
+        """SignoffJob 추가 (InputConfig 통합)"""
         if any(j["job_id"] == job_id for j in self.signoff_jobs):
             return None
         
+        # 시간 계산
+        now = datetime.now()
+        if status == "DONE":
+            start_time = now - timedelta(hours=random.randint(1, 24))
+            completion_time = now
+            runtime = int((completion_time - start_time).total_seconds())
+        elif status == "RUNNING":
+            start_time = now - timedelta(hours=random.randint(1, 5))
+            completion_time = None
+            runtime = None
+        else:
+            start_time = None
+            completion_time = None
+            runtime = None
+        
         job = {
             "job_id": job_id,
-            "task_id": task_id,
-            "lsf_job_id": lsf_job_id or str(random.randint(10000000, 99999999)),
-            "status": status,  # PENDING, RUNNING, DONE, FAILED
-            "power_warning_nets": [],
-            "start_time": None,
-            "end_time": None,
-            "log_path": None,
+            "revision_id": revision_id,
+            "block_id": block_id,
+            "app_id": app_id,
+            "criteria_id": criteria_id or f"{app_id}_TAPEOUT_V1",
+            "workspace_id": workspace_id,
+            "executed_by": executed_by,
+            # InputConfig 통합
+            "netlist_path": netlist_path or f"/data/{revision_id}/netlist.sp",
+            "tech_file_path": "/tech/4nm/tech.tf",
+            "power_definition": power_definition or {"VDD": ["vdd_core"], "VSS": ["vss"]},
+            "pvt_corner": pvt_corner,
+            "simulation_params": {"threshold": 0.1},
+            # 실행 상태
+            "status": status,
+            "lsf_job_id": str(random.randint(10000000, 99999999)) if status in ["RUNNING", "DONE"] else None,
+            "queue_name": "normal",
+            "submission_time": (start_time - timedelta(minutes=5)).isoformat() if start_time else None,
+            "start_time": start_time.isoformat() if start_time else None,
+            "completion_time": completion_time.isoformat() if completion_time else None,
+            "runtime_seconds": runtime,
             "created_at": datetime.now().isoformat(),
-            "_type": "SignoffJob"
         }
         self.signoff_jobs.append(job)
-        
-        # Workspace 자동 생성
-        ws_id = f"WS_{job_id}"
-        self.add_workspace(ws_id, job_id)
-        
-        # Task 상태 업데이트
-        task["status"] = "IN_PROGRESS"
-        
         return job
     
-    # ========== CRUD: Result ==========
     def add_result(self, result_id: str, job_id: str,
-                   row_count: int = 1000,
-                   waiver_count: int = 0,
-                   fixed_count: int = 0,
-                   base_result_id: str = None,
-                   comparison_summary: Dict = None) -> Optional[Dict]:
-        """Result 추가 - WAIVER/FIXED/PENDING 기반"""
-        job = next((j for j in self.signoff_jobs if j["job_id"] == job_id), None)
-        if not job:
-            return None
+                   row_count: int = 1000, fail_count: int = None,
+                   waiver_count: int = 0, fixed_count: int = 0,
+                   analysis_status: str = "PENDING",
+                   workspace_id: str = None) -> Optional[Dict]:
+        """Result 추가"""
         if any(r["result_id"] == result_id for r in self.results):
             return None
         
-        # pending 계산
-        pending_count = row_count - waiver_count - fixed_count
-        pending_count = max(0, pending_count)
+        if fail_count is None:
+            fail_count = row_count - waiver_count - fixed_count
         
-        # 진행률 계산: (waiver + fixed) / total * 100
-        progress_pct = ((waiver_count + fixed_count) / row_count * 100) if row_count > 0 else 0
-        
-        # waiver_migrated_count 계산 (비교 시)
-        waiver_migrated = 0
-        if comparison_summary:
-            waiver_migrated = comparison_summary.get("same_count", 0)
+        waiver_progress = ((waiver_count + fixed_count) / row_count * 100) if row_count > 0 else 0
         
         result = {
             "result_id": result_id,
             "job_id": job_id,
+            "workspace_id": workspace_id,
+            "result_file_path": f"/results/{result_id}/result.parquet",
+            # Row 통계
             "row_count": row_count,
+            "fail_count": fail_count,
             "waiver_count": waiver_count,
             "fixed_count": fixed_count,
-            "pending_count": pending_count,
-            "waiver_progress_pct": round(progress_pct, 1),
-            "base_result_id": base_result_id,
-            "comparison_summary": comparison_summary or {
-                "same_count": 0,
-                "diff_count": 0,
-                "new_count": row_count,
-                "removed_count": 0
-            },
-            "waiver_migrated_count": waiver_migrated,
-            "result_file_path": f"/WORKSPACE/result_{result_id}.parquet",
+            # 진행 상태
+            "analysis_status": analysis_status,
+            "waiver_progress_pct": round(waiver_progress, 1),
+            # Central 동기화
+            "is_uploaded": analysis_status == "COMPLETED",
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "_type": "Result"
         }
         self.results.append(result)
-        
-        # Job/Task 상태 업데이트
-        job["status"] = "DONE"
-        job["end_time"] = datetime.now().isoformat()
-        
-        task = next((t for t in self.signoff_tasks if t["task_id"] == job["task_id"]), None)
-        if task:
-            task["status"] = "COMPLETED" if pending_count == 0 else "IN_PROGRESS"
-            task["updated_at"] = datetime.now().isoformat()
-        
-        # Workspace 업로드 상태 업데이트
-        ws = next((w for w in self.workspaces if w["job_id"] == job_id), None)
-        if ws:
-            ws["uploaded"] = "UPLOADED"
-            ws["uploaded_time"] = datetime.now().isoformat()
-        
         return result
     
-    # ========== 템플릿 데이터 로드 ==========
+    # ========== DYNAMIC LAYER: CRUD ==========
+    
+    def add_categorize_part(self, categorize_id: str, result_id: str,
+                            category_name: str, assigned_to: str,
+                            row_count: int = 100,
+                            assignment_type: str = "AUTO") -> Optional[Dict]:
+        """CategorizePart 추가"""
+        cat = {
+            "categorize_id": categorize_id,
+            "result_id": result_id,
+            "category_name": category_name,
+            "category_rule": {"column": "hierarchy", "pattern": f"*{category_name}*"},
+            "assigned_to": assigned_to,
+            "row_count": row_count,
+            "assignment_type": assignment_type,
+            "created_at": datetime.now().isoformat(),
+        }
+        self.categorize_parts.append(cat)
+        return cat
+    
+    def add_compare_result(self, compare_id: str, source_result_id: str, target_result_id: str,
+                           new_fail_count: int = 0, fixed_count: int = 0,
+                           regressed_count: int = 0, unchanged_fail_count: int = 0,
+                           waiver_migrated_count: int = 0) -> Optional[Dict]:
+        """CompareResult 추가"""
+        compare = {
+            "compare_id": compare_id,
+            "source_result_id": source_result_id,
+            "target_result_id": target_result_id,
+            "new_fail_count": new_fail_count,
+            "fixed_count": fixed_count,
+            "regressed_count": regressed_count,
+            "unchanged_fail_count": unchanged_fail_count,
+            "waiver_migrated_count": waiver_migrated_count,
+            "comparison_type": "AUTO_ON_UPLOAD",
+            "created_at": datetime.now().isoformat(),
+        }
+        self.compare_results.append(compare)
+        return compare
+    
+    def add_waiver_decision(self, decision_id: str, result_id: str, row_key: str,
+                            decision_type: str = "WAIVER", reason: str = "",
+                            decided_by: str = None) -> Optional[Dict]:
+        """WaiverDecision 추가"""
+        decision = {
+            "decision_id": decision_id,
+            "result_id": result_id,
+            "row_key": row_key,
+            "decision_type": decision_type,
+            "reason": reason,
+            "decided_by": decided_by,
+            "created_at": datetime.now().isoformat(),
+        }
+        self.waiver_decisions.append(decision)
+        return decision
+    
+    def add_signoff_issue(self, issue_id: str, app_id: str, title: str,
+                          description: str = "", issue_type: str = "INQUIRY",
+                          status: str = "OPEN", reported_by: str = None,
+                          assigned_to: str = None, result_id: str = None) -> Optional[Dict]:
+        """SignoffIssue 추가"""
+        issue = {
+            "issue_id": issue_id,
+            "app_id": app_id,
+            "result_id": result_id,
+            "title": title,
+            "description": description,
+            "issue_type": issue_type,
+            "status": status,
+            "reported_by": reported_by,
+            "assigned_to": assigned_to,
+            "created_at": datetime.now().isoformat(),
+        }
+        self.signoff_issues.append(issue)
+        return issue
+    
+    # ========== SCENARIO LOADERS ==========
+    
     def load_scenario_a_full_lifecycle(self):
-        """시나리오 A: HBM4E 전체 라이프사이클 (R00→R10→R30→R40→R60)"""
+        """시나리오 A: HBM4E 전체 라이프사이클 (R00→R60)"""
         self.clear_all()
         
         # 1. Product
-        self.add_product("HBM4E", "HBM4E 32GB Wide I/O", "HBM")
+        self.add_product("HBM4E", "HBM4E 32GB Wide I/O", "HBM", "4nm", "ACTIVE")
         
-        # 2. 6개 Application
-        for app in self.APPLICATIONS:
-            self.add_signoff_application(**app)
-        
-        # 3. Designers (실제 팀원 이름)
+        # 2. Designers
         for d in self.DESIGNERS_LIST:
-            self.add_designer(d["id"], d["name"], role=d["role"])
+            self.add_designer(d["id"], d["name"], team=d.get("team"), role=d["role"])
         
-        # 4. Revisions & Blocks & Tasks & Jobs & Results
-        # 각 Revision이 100% 완료되어야 다음으로 진행
-        revisions_data = [
-            ("R00", 100, 1.0),   # 완료됨
-            ("R10", 100, 1.0),   # 완료됨
-            ("R30", 100, 1.0),   # 완료됨
-            ("R40", 85, 0.85),   # 진행 중
-            ("R60", 0, 0),       # 아직 시작 안함
-        ]
+        # 3. Applications
+        for app in self.APPLICATIONS:
+            self.add_signoff_application(
+                app["app_id"], app["app_name"], app["app_group"],
+                app["engine_type"], app["comparison_key"], app["supported_pvt_corners"]
+            )
         
-        blocks = self.BLOCK_TYPES[:5]  # FULLCHIP, PAD, BANTI_DC, BTSV_16CH_B, BTSV_4CH_B
-        prev_rev_id = None
+        # 4. Criteria Sets
+        for app in self.APPLICATIONS[:6]:  # 주요 6개 앱
+            self.add_criteria_set(f"{app['app_id']}_TAPEOUT_V1", app["app_id"],
+                                  f"{app['app_name']} Tapeout Criteria", "TAPEOUT", "v1.0")
         
-        for rev_phase, progress, completion in revisions_data:
-            rev_id = f"HBM4E_{rev_phase}"
-            status = "COMPLETED" if progress == 100 else ("IN_PROGRESS" if progress > 0 else "NOT_STARTED")
+        # 5. Workspaces (Central + Local)
+        self.add_workspace("WS-CENTRAL-HBM4E", "CENTRAL", "/WORKSPACE/HBM4E/", "HBM4E")
+        
+        # 6. Revisions with progressive completion
+        revision_progress = {
+            "R00": 1.0, "R10": 1.0, "R30": 1.0,  # 완료
+            "R40": 0.85,  # 진행 중
+            "R60": 0.0   # 시작 전
+        }
+        
+        for rev_code in ["R00", "R10", "R30", "R40", "R60"]:
+            rev_id = f"HBM4E_{rev_code}"
+            progress = revision_progress.get(rev_code, 0)
+            status = "COMPLETED" if progress == 1.0 else ("IN_PROGRESS" if progress > 0 else "NOT_STARTED")
             
-            self.add_revision(rev_id, "HBM4E", rev_phase, status, 
-                              previous_revision_id=prev_rev_id)
+            # 해당 Revision에서 수행 가능한 App 목록
+            available_apps = [
+                app_id for app_id, revs in self.APP_AVAILABILITY.items()
+                if rev_code in revs and app_id in [a["app_id"] for a in self.APPLICATIONS]
+            ]
             
-            # Blocks for this revision
-            for block_name in blocks:
+            self.add_revision(rev_id, "HBM4E", rev_code, status=status,
+                              required_applications=available_apps)
+            
+            # 7. Blocks
+            for block_name in self.BLOCK_NAMES[:5]:
                 block_id = f"{rev_id}_{block_name}"
-                self.add_block(block_id, rev_id, block_name)
-                
-                # Tasks for each block x app (Revision별 수행 가능 Application만)
-                for app in self.signoff_applications:
-                    app_id = app["app_id"]
-                    
-                    # 해당 Revision에서 수행 가능한 Application인지 확인
-                    if rev_phase not in self.APP_AVAILABILITY.get(app_id, []):
-                        continue
-                    
-                    task_id = f"{block_id}_{app_id}"
-                    # PVT Corner 선택
-                    pvt = random.choice(self.PVT_CORNERS)
-                    owner = random.choice(self.designers)["designer_id"]
-                    
-                    self.add_signoff_task(task_id, rev_id, block_id, app_id, owner,
-                                          pvt_corner={"name": pvt["name"], "process": pvt["process"],
-                                                      "voltage": pvt["voltage"], "temp": pvt["temp"]})
-                    
-                    # Create Job and Result based on progress
-                    if completion > 0 and random.random() < completion:
-                        job_id = f"JOB_{task_id}"
-                        self.add_signoff_job(job_id, task_id, status="DONE")
-                        
-                        # Update job times
-                        job = next(j for j in self.signoff_jobs if j["job_id"] == job_id)
-                        job["start_time"] = (datetime.now() - timedelta(days=random.randint(1, 30))).isoformat()
-                        job["end_time"] = datetime.now().isoformat()
-                        
-                        # Result data - 현실적인 10만~100만 행
-                        total_rows = random.randint(100000, 500000)
-                        # 완료된 Revision은 100% waiver+fixed
-                        if completion >= 1.0:
-                            processed = total_rows
-                        else:
-                            processed = int(total_rows * (0.7 + completion * 0.25))
-                        waiver = int(processed * 0.75)  # 75%는 WAIVER (가성)
-                        fixed = processed - waiver       # 나머지는 FIXED (진성 수정)
-                        
-                        # Comparison with previous revision
-                        prev_result_id = None
-                        comparison = None
-                        if prev_rev_id:
-                            prev_result_id = f"RESULT_{prev_rev_id}_{block_name}_{app_id}"
-                            same = int(total_rows * 0.6)
-                            comparison = {
-                                "same_count": same,
-                                "diff_count": int(total_rows * 0.15),
-                                "new_count": int(total_rows * 0.2),
-                                "removed_count": int(total_rows * 0.05)
-                            }
-                        
-                        result_id = f"RESULT_{task_id}"
-                        self.add_result(result_id, job_id, total_rows, waiver, fixed,
-                                        prev_result_id, comparison)
+                designer = random.choice(self.DESIGNERS_LIST)
+                self.add_block(block_id, rev_id, block_name, 
+                               designer_id=designer["id"])
             
-            prev_rev_id = rev_id
+            if progress == 0:
+                continue  # 시작 전인 Revision은 Job/Result 없음
+            
+            # 8. Jobs, Results
+            blocks = [b for b in self.blocks if b["revision_id"] == rev_id]
+            for block in blocks:
+                block_apps = random.sample(available_apps, min(3, len(available_apps)))
+                for app_id in block_apps:
+                    pvt = random.choice(self.PVT_CORNERS)["name"]
+                    job_id = f"JOB-{rev_code}-{block['block_name']}-{app_id}"
+                    
+                    # 상태 결정
+                    if progress == 1.0:
+                        status = "DONE"
+                    elif progress >= 0.85:
+                        status = random.choices(["DONE", "RUNNING", "PENDING"], [0.7, 0.2, 0.1])[0]
+                    else:
+                        status = random.choices(["PENDING", "RUNNING"], [0.7, 0.3])[0]
+                    
+                    designer = random.choice(self.DESIGNERS_LIST)
+                    self.add_signoff_job(job_id, rev_id, block["block_id"], app_id,
+                                         executed_by=designer["id"], pvt_corner=pvt, status=status)
+                    
+                    if status == "DONE":
+                        # Result 생성
+                        result_id = f"RESULT-{job_id}"
+                        total_rows = random.randint(100000, 500000)
+                        
+                        if progress == 1.0:
+                            waiver_pct = random.uniform(0.85, 0.98)
+                            fixed_pct = random.uniform(0.01, 0.12)
+                        else:
+                            waiver_pct = random.uniform(0.60, 0.80)
+                            fixed_pct = random.uniform(0.01, 0.10)
+                        
+                        waiver = int(total_rows * waiver_pct)
+                        fixed = int(total_rows * fixed_pct)
+                        
+                        self.add_result(result_id, job_id, total_rows,
+                                         waiver_count=waiver, fixed_count=fixed,
+                                         analysis_status="COMPLETED" if progress == 1.0 else "IN_PROGRESS")
     
-    def load_scenario_b_r30_detail(self):
-        """시나리오 B: R40 상세 실행 결과 (5개 Application - R40에서 수행 가능한 것들)"""
+    def load_scenario_b_r40_detail(self):
+        """시나리오 B: R40 상세 실행 결과 (Post-Layout Apps)"""
         self.clear_all()
         
-        # Product
-        self.add_product("HBM4E", "HBM4E 32GB Wide I/O", "HBM")
+        # 기본 설정
+        self.add_product("HBM4E", "HBM4E 32GB Wide I/O", "HBM", "4nm")
         
-        # Applications
-        for app in self.APPLICATIONS:
-            self.add_signoff_application(**app)
-        
-        # Designers (실제 팀원)
         for d in self.DESIGNERS_LIST:
-            self.add_designer(d["id"], d["name"], role=d["role"])
+            self.add_designer(d["id"], d["name"], team=d.get("team"), role=d["role"])
+        
+        # R40에서 수행 가능한 Application들
+        r40_apps = ["PEC", "DSC", "LSC", "LS", "CANATR"]
+        for app in self.APPLICATIONS:
+            if app["app_id"] in r40_apps:
+                self.add_signoff_application(
+                    app["app_id"], app["app_name"], app["app_group"],
+                    app["engine_type"], app["comparison_key"], app["supported_pvt_corners"]
+                )
+                self.add_criteria_set(f"{app['app_id']}_TAPEOUT_V1", app["app_id"])
+        
+        # Workspace
+        self.add_workspace("WS-CENTRAL-HBM4E", "CENTRAL", "/WORKSPACE/HBM4E/", "HBM4E")
+        self.add_workspace("WS-LOCAL-kwangsun", "LOCAL", "/user/HBM4E/SIGNOFF/kwangsun/", "HBM4E", "kwangsun")
         
         # R40 Revision
-        self.add_revision("HBM4E_R40", "HBM4E", "R40", "IN_PROGRESS")
+        self.add_revision("HBM4E_R40", "HBM4E", "R40", "POST_LAYOUT", "IN_PROGRESS",
+                          required_applications=r40_apps)
         
-        # 5 Blocks (실제 Block 이름)
-        for block_name in self.BLOCK_TYPES[:5]:
-            block_id = f"HBM4E_R40_{block_name}"
-            self.add_block(block_id, "HBM4E_R40", block_name)
-            
-            # R40에서 수행 가능한 Applications: PEC, DSC, LSC, LS, CANATR (5개)
-            available_apps = ["PEC", "DSC", "LSC", "LS", "CANATR"]
-            for app in self.signoff_applications:
-                if app["app_id"] not in available_apps:
-                    continue
+        # Blocks
+        for block_name in self.BLOCK_NAMES[:5]:
+            designer = random.choice(self.DESIGNERS_LIST)
+            self.add_block(f"HBM4E_R40_{block_name}", "HBM4E_R40", block_name,
+                           designer_id=designer["id"])
+        
+        # Jobs & Results for each Block x App
+        for block in self.blocks:
+            for app_id in r40_apps:
+                pvt = random.choice(self.PVT_CORNERS)["name"]
+                job_id = f"JOB-R40-{block['block_name']}-{app_id}"
+                status = random.choices(["DONE", "RUNNING", "PENDING"], [0.7, 0.2, 0.1])[0]
+                
+                designer = random.choice(self.DESIGNERS_LIST)
+                self.add_signoff_job(job_id, "HBM4E_R40", block["block_id"], app_id,
+                                     executed_by=designer["id"], pvt_corner=pvt, status=status)
+                
+                if status == "DONE":
+                    result_id = f"RESULT-{job_id}"
+                    total = random.randint(100000, 400000)
+                    waiver = int(total * random.uniform(0.70, 0.90))
+                    fixed = int(total * random.uniform(0.05, 0.15))
                     
-                task_id = f"{block_id}_{app['app_id']}"
-                pvt = random.choice(self.PVT_CORNERS)
-                owner = random.choice(self.designers)["designer_id"]
-                
-                self.add_signoff_task(task_id, "HBM4E_R40", block_id, app["app_id"], owner,
-                                      pvt_corner={"name": pvt["name"], "process": pvt["process"],
-                                                  "voltage": pvt["voltage"], "temp": pvt["temp"]})
-                
-                # Job and Result (현실적인 데이터)
-                job_id = f"JOB_{task_id}"
-                self.add_signoff_job(job_id, task_id, status="DONE")
-                
-                # 현실적인 10만~50만 행
-                total = random.randint(100000, 300000)
-                # R40: 약 85% 완료
-                processed = int(total * 0.85)
-                waiver = int(processed * 0.78)
-                fixed = processed - waiver
-                
-                self.add_result(f"RESULT_{task_id}", job_id, total, waiver, fixed)
+                    self.add_result(result_id, job_id, total,
+                                    waiver_count=waiver, fixed_count=fixed,
+                                    analysis_status="IN_PROGRESS")
     
     def load_scenario_c_compare_migration(self):
-        """시나리오 C: R30 vs R40 비교 & Waiver Migration 시뮬레이션"""
+        """시나리오 C: R30 vs R40 비교 & Waiver Migration"""
         self.clear_all()
         
-        # Product
+        # 기본 설정
         self.add_product("HBM4E", "HBM4E 32GB Wide I/O", "HBM")
         
+        for d in self.DESIGNERS_LIST:
+            self.add_designer(d["id"], d["name"], team=d.get("team"), role=d["role"])
+        
         # Applications
+        compare_apps = ["DSC", "LSC", "PEC"]
         for app in self.APPLICATIONS:
-            self.add_signoff_application(**app)
+            if app["app_id"] in compare_apps:
+                self.add_signoff_application(app["app_id"], app["app_name"], app["app_group"])
+                self.add_criteria_set(f"{app['app_id']}_TAPEOUT_V1", app["app_id"])
         
-        # Designers (일부)
-        for d in self.DESIGNERS_LIST[:4]:
-            self.add_designer(d["id"], d["name"], role=d["role"])
+        # R30 (완료) & R40 (진행 중)
+        self.add_revision("HBM4E_R30", "HBM4E", "R30", "POST_LAYOUT", "COMPLETED", compare_apps)
+        self.add_revision("HBM4E_R40", "HBM4E", "R40", "POST_LAYOUT", "IN_PROGRESS", compare_apps)
         
-        # R30 (이전 버전 - 완료됨)
-        self.add_revision("HBM4E_R30", "HBM4E", "R30", "COMPLETED")
+        # FULLCHIP Block만 비교
+        self.add_block("HBM4E_R30_FULLCHIP", "HBM4E_R30", "FULLCHIP", designer_id="kwangsun")
+        self.add_block("HBM4E_R40_FULLCHIP", "HBM4E_R40", "FULLCHIP", designer_id="kwangsun")
         
-        # R40에서 수행 가능한 Applications로 제한 (비교 대상)
-        compare_apps = ["DSC", "LSC", "LS", "PEC"]
-        
-        for block_name in ["FULLCHIP", "PAD", "BANTI_DC"]:
-            block_id = f"HBM4E_R30_{block_name}"
-            self.add_block(block_id, "HBM4E_R30", block_name)
+        # R30 Jobs & Results (완료)
+        for app_id in compare_apps:
+            job_r30 = f"JOB-R30-FULLCHIP-{app_id}"
+            self.add_signoff_job(job_r30, "HBM4E_R30", "HBM4E_R30_FULLCHIP", app_id,
+                                 executed_by="kwangsun", status="DONE")
             
-            for app in self.signoff_applications:
-                if app["app_id"] not in compare_apps:
-                    continue
-                    
-                task_id = f"{block_id}_{app['app_id']}"
-                pvt = random.choice(self.PVT_CORNERS)
-                owner = random.choice(self.designers)["designer_id"]
-                
-                self.add_signoff_task(task_id, "HBM4E_R30", block_id, 
-                                       app["app_id"], owner, status="COMPLETED",
-                                       pvt_corner={"name": pvt["name"], "process": pvt["process"],
-                                                   "voltage": pvt["voltage"], "temp": pvt["temp"]})
-                
-                job_id = f"JOB_{task_id}"
-                self.add_signoff_job(job_id, task_id, status="DONE")
-                
-                # R30 - 100% 완료 (현실적인 데이터)
-                total = random.randint(150000, 250000)
-                waiver = int(total * 0.75)
-                fixed = total - waiver
-                self.add_result(f"RESULT_{task_id}", job_id, total, waiver, fixed)
+            total = random.randint(200000, 300000)
+            waiver = int(total * 0.95)
+            fixed = int(total * 0.04)
+            self.add_result(f"RESULT-{job_r30}", job_r30, total,
+                            waiver_count=waiver, fixed_count=fixed, analysis_status="COMPLETED")
         
-        # R40 (현재 버전 - 진행중)
-        self.add_revision("HBM4E_R40", "HBM4E", "R40", "IN_PROGRESS",
-                          previous_revision_id="HBM4E_R30")
-        
-        for block_name in ["FULLCHIP", "PAD", "BANTI_DC"]:
-            block_id = f"HBM4E_R40_{block_name}"
-            self.add_block(block_id, "HBM4E_R40", block_name)
+        # R40 Jobs & Results (진행 중)
+        for app_id in compare_apps:
+            job_r40 = f"JOB-R40-FULLCHIP-{app_id}"
+            self.add_signoff_job(job_r40, "HBM4E_R40", "HBM4E_R40_FULLCHIP", app_id,
+                                 executed_by="kwangsun", status="DONE")
             
-            for app in self.signoff_applications:
-                if app["app_id"] not in compare_apps:
-                    continue
-                    
-                task_id = f"{block_id}_{app['app_id']}"
-                pvt = random.choice(self.PVT_CORNERS)
-                owner = random.choice(self.designers)["designer_id"]
-                
-                self.add_signoff_task(task_id, "HBM4E_R40", block_id,
-                                       app["app_id"], owner,
-                                       pvt_corner={"name": pvt["name"], "process": pvt["process"],
-                                                   "voltage": pvt["voltage"], "temp": pvt["temp"]})
-                
-                job_id = f"JOB_{task_id}"
-                self.add_signoff_job(job_id, task_id, status="DONE")
-                
-                # R40 with comparison to R30 (현실적인 비교 데이터)
-                total = random.randint(180000, 280000)  # R40이 약간 더 많음
-                prev_result_id = f"RESULT_HBM4E_R30_{block_name}_{app['app_id']}"
-                
-                # 비교 결과: 약 60% same, 15% diff, 20% new, 5% removed
-                same_count = int(total * 0.60)
-                diff_count = int(total * 0.15)
-                new_count = int(total * 0.20)
-                removed_count = int(total * 0.05)
-                
-                comparison = {
-                    "same_count": same_count,     # 이전과 동일 → WAIVER 자동 이관
-                    "diff_count": diff_count,     # 값 변경 → 재검토 필요
-                    "new_count": new_count,       # 신규 → 검토 필요
-                    "removed_count": removed_count # 이전에만 있음 (해결됨)
-                }
-                
-                # Waiver 이관: same은 자동 이관, diff와 new는 80% 처리됨
-                waiver = int(same_count * 0.95) + int((diff_count + new_count) * 0.40)  # 이관 + 신규 처리
-                fixed = int((diff_count + new_count) * 0.35)
-                # pending = 나머지 (new 중 미처리)
-                
-                self.add_result(f"RESULT_{task_id}", job_id, total, waiver, fixed,
-                                prev_result_id, comparison)
+            total = random.randint(250000, 350000)
+            waiver = int(total * 0.75)  # Waiver 진행 중
+            fixed = int(total * 0.10)
+            result_r40 = self.add_result(f"RESULT-{job_r40}", job_r40, total,
+                                         waiver_count=waiver, fixed_count=fixed,
+                                         analysis_status="IN_PROGRESS")
+            
+            # CompareResult 생성
+            source_result = f"RESULT-JOB-R30-FULLCHIP-{app_id}"
+            target_result = f"RESULT-{job_r40}"
+            
+            base_total = 250000
+            self.add_compare_result(
+                f"CMP-R30-R40-{app_id}",
+                source_result, target_result,
+                new_fail_count=random.randint(1000, 5000),
+                fixed_count=random.randint(500, 2000),
+                regressed_count=random.randint(100, 500),
+                unchanged_fail_count=random.randint(10000, 30000),
+                waiver_migrated_count=int(base_total * 0.70)
+            )
     
     def load_template(self, scenario: str = "full_lifecycle"):
         """시나리오 로드"""
-        if scenario == "full_lifecycle" or scenario == "a":
+        if scenario == "full_lifecycle":
             self.load_scenario_a_full_lifecycle()
-        elif scenario == "r30_detail" or scenario == "b":
-            self.load_scenario_b_r30_detail()
-        elif scenario == "compare" or scenario == "c":
+        elif scenario == "r40_detail":
+            self.load_scenario_b_r40_detail()
+        elif scenario == "compare":
             self.load_scenario_c_compare_migration()
         else:
             self.load_scenario_a_full_lifecycle()
     
-    # ========== 통계 ==========
+    # ========== STATISTICS & ANALYTICS ==========
+    
     def get_statistics(self) -> Dict:
         """전체 통계"""
         total_rows = sum(r["row_count"] for r in self.results)
         total_waiver = sum(r["waiver_count"] for r in self.results)
         total_fixed = sum(r["fixed_count"] for r in self.results)
-        total_pending = sum(r["pending_count"] for r in self.results)
+        total_pending = sum(r["fail_count"] for r in self.results)
         
-        completed_tasks = len([t for t in self.signoff_tasks if t["status"] == "COMPLETED"])
+        progress = ((total_waiver + total_fixed) / total_rows * 100) if total_rows > 0 else 0
         
         return {
             "products": len(self.products),
             "revisions": len(self.revisions),
             "blocks": len(self.blocks),
-            "applications": len(self.signoff_applications),
-            "tasks": len(self.signoff_tasks),
-            "jobs": len(self.signoff_jobs),
-            "configs": len(self.input_configs),
-            "workspaces": len(self.workspaces),
-            "results": len(self.results),
             "designers": len(self.designers),
+            "applications": len(self.signoff_applications),
+            "criteria_sets": len(self.criteria_sets),
+            "workspaces": len(self.workspaces),
+            "jobs": len(self.signoff_jobs),
+            "results": len(self.results),
+            "categorize_parts": len(self.categorize_parts),
+            "compare_results": len(self.compare_results),
+            "waiver_decisions": len(self.waiver_decisions),
+            "issues": len(self.signoff_issues),
             "total_rows": total_rows,
-            "total_waiver": total_waiver,
-            "total_fixed": total_fixed,
-            "total_pending": total_pending,
-            "overall_progress": round((total_waiver + total_fixed) / total_rows * 100, 1) if total_rows > 0 else 0,
-            "completed_tasks": completed_tasks,
+            "waiver_count": total_waiver,
+            "fixed_count": total_fixed,
+            "pending_count": total_pending,
+            "progress_pct": round(progress, 1),
         }
     
     def get_revision_progress(self) -> List[Dict]:
         """Revision별 진행률"""
-        result = []
+        progress_list = []
         for rev in self.revisions:
-            tasks = [t for t in self.signoff_tasks if t["revision_id"] == rev["revision_id"]]
-            jobs = [j for j in self.signoff_jobs if j["task_id"] in [t["task_id"] for t in tasks]]
-            results = [r for r in self.results if r["job_id"] in [j["job_id"] for j in jobs]]
+            rev_jobs = [j for j in self.signoff_jobs if j["revision_id"] == rev["revision_id"]]
+            rev_results = [r for r in self.results if r["job_id"] in [j["job_id"] for j in rev_jobs]]
             
-            total = sum(r["row_count"] for r in results)
-            waiver = sum(r["waiver_count"] for r in results)
-            fixed = sum(r["fixed_count"] for r in results)
-            pending = sum(r["pending_count"] for r in results)
+            total = sum(r["row_count"] for r in rev_results)
+            waiver = sum(r["waiver_count"] for r in rev_results)
+            fixed = sum(r["fixed_count"] for r in rev_results)
+            pending = sum(r["fail_count"] for r in rev_results)
             
-            result.append({
+            progress = ((waiver + fixed) / total * 100) if total > 0 else 0
+            
+            progress_list.append({
                 "revision_id": rev["revision_id"],
-                "revision_phase": rev["revision_phase"],
-                "status": rev["signoff_status"],
-                "total_tasks": len(tasks),
-                "completed_jobs": len([j for j in jobs if j["status"] == "DONE"]),
+                "revision_code": rev["revision_code"],
+                "status": rev["status"],
+                "total_jobs": len(rev_jobs),
+                "done_jobs": len([j for j in rev_jobs if j["status"] == "DONE"]),
                 "total_rows": total,
                 "waiver_count": waiver,
                 "fixed_count": fixed,
                 "pending_count": pending,
-                "progress_pct": round((waiver + fixed) / total * 100, 1) if total > 0 else 0
+                "progress_pct": round(progress, 1),
             })
-        return result
+        return progress_list
     
-    # ========== Export ==========
-    def to_json_graphrag(self) -> str:
-        """GraphRAG/LLM용 JSON Export"""
-        nodes = []
-        edges = []
-        
-        # Nodes
-        for p in self.products:
-            nodes.append({"id": p["product_id"], "type": "Product", "properties": p})
-        for r in self.revisions:
-            nodes.append({"id": r["revision_id"], "type": "Revision", "properties": r})
-        for b in self.blocks:
-            nodes.append({"id": b["block_id"], "type": "Block", "properties": b})
-        for a in self.signoff_applications:
-            nodes.append({"id": a["app_id"], "type": "SignoffApplication", "properties": a})
-        for d in self.designers:
-            nodes.append({"id": d["designer_id"], "type": "Designer", "properties": d})
-        for t in self.signoff_tasks:
-            nodes.append({"id": t["task_id"], "type": "SignoffTask", "properties": t})
-        for c in self.input_configs:
-            nodes.append({"id": c["config_id"], "type": "InputConfig", "properties": c})
-        for j in self.signoff_jobs:
-            nodes.append({"id": j["job_id"], "type": "SignoffJob", "properties": j})
-        for w in self.workspaces:
-            nodes.append({"id": w["workspace_id"], "type": "Workspace", "properties": w})
-        for res in self.results:
-            nodes.append({"id": res["result_id"], "type": "Result", "properties": res})
-        
-        # Edges
-        edge_id = 0
-        for r in self.revisions:
-            edges.append({"id": f"e{edge_id}", "source": r["product_id"], "target": r["revision_id"], 
-                          "relationship": "has_revision"})
-            edge_id += 1
-            if r["previous_revision_id"]:
-                edges.append({"id": f"e{edge_id}", "source": r["revision_id"], 
-                              "target": r["previous_revision_id"], "relationship": "previous_version"})
-                edge_id += 1
-        
-        for b in self.blocks:
-            edges.append({"id": f"e{edge_id}", "source": b["revision_id"], "target": b["block_id"],
-                          "relationship": "has_block"})
-            edge_id += 1
-        
-        for t in self.signoff_tasks:
-            edges.append({"id": f"e{edge_id}", "source": t["block_id"], "target": t["task_id"],
-                          "relationship": "target_of"})
-            edge_id += 1
-            edges.append({"id": f"e{edge_id}", "source": t["task_id"], "target": t["app_id"],
-                          "relationship": "uses_application"})
-            edge_id += 1
-            if t["owner_id"]:
-                edges.append({"id": f"e{edge_id}", "source": t["task_id"], "target": t["owner_id"],
-                              "relationship": "owned_by"})
-                edge_id += 1
-        
-        for c in self.input_configs:
-            edges.append({"id": f"e{edge_id}", "source": c["task_id"], "target": c["config_id"],
-                          "relationship": "uses_config"})
-            edge_id += 1
-        
-        for j in self.signoff_jobs:
-            edges.append({"id": f"e{edge_id}", "source": j["task_id"], "target": j["job_id"],
-                          "relationship": "has_job"})
-            edge_id += 1
-        
-        for w in self.workspaces:
-            edges.append({"id": f"e{edge_id}", "source": w["job_id"], "target": w["workspace_id"],
-                          "relationship": "executes_in"})
-            edge_id += 1
-        
-        for res in self.results:
-            edges.append({"id": f"e{edge_id}", "source": res["job_id"], "target": res["result_id"],
-                          "relationship": "produces"})
-            edge_id += 1
-            if res["base_result_id"]:
-                edges.append({"id": f"e{edge_id}", "source": res["result_id"], 
-                              "target": res["base_result_id"], "relationship": "compared_with"})
-                edge_id += 1
-        
-        return json.dumps({
-            "metadata": {
-                "name": "Signoff Ontology",
-                "version": "2.0",
-                "created_at": datetime.now().isoformat(),
-                "object_types": list(self.COLORS.keys())
-            },
-            "nodes": nodes,
-            "edges": edges
-        }, ensure_ascii=False, indent=2)
+    def get_application_stats(self) -> List[Dict]:
+        """Application별 통계"""
+        stats = []
+        for app in self.signoff_applications:
+            app_jobs = [j for j in self.signoff_jobs if j["app_id"] == app["app_id"]]
+            app_results = [r for r in self.results if r["job_id"] in [j["job_id"] for j in app_jobs]]
+            
+            total = sum(r["row_count"] for r in app_results)
+            waiver = sum(r["waiver_count"] for r in app_results)
+            fixed = sum(r["fixed_count"] for r in app_results)
+            
+            stats.append({
+                "app_id": app["app_id"],
+                "app_name": app["app_name"],
+                "job_count": len(app_jobs),
+                "result_count": len(app_results),
+                "total_rows": total,
+                "waiver_count": waiver,
+                "fixed_count": fixed,
+                "pending_count": total - waiver - fixed,
+            })
+        return stats
+    
+    # ========== GRAPH & EXPORT ==========
     
     def to_graph_elements(self) -> List[Dict]:
         """Cytoscape용 그래프 요소"""
         elements = []
         
+        # Helper function
+        def get_layer(obj_type):
+            for layer, types in self.LAYERS.items():
+                if obj_type in types:
+                    return layer
+            return "Unknown"
+        
         # Nodes
         for p in self.products:
-            elements.append({"data": {"id": p["product_id"], "label": p["product_name"],
-                                       "type": "Product", "color": self.COLORS["Product"]}})
-        for r in self.revisions:
-            elements.append({"data": {"id": r["revision_id"], "label": r["revision_phase"],
-                                       "type": "Revision", "color": self.COLORS["Revision"]}})
-        for b in self.blocks:
-            elements.append({"data": {"id": b["block_id"], "label": b["block_name"],
-                                       "type": "Block", "color": self.COLORS["Block"]}})
-        for a in self.signoff_applications:
-            elements.append({"data": {"id": a["app_id"], "label": a["app_name"],
-                                       "type": "SignoffApplication", "color": self.COLORS["SignoffApplication"]}})
-        for d in self.designers:
-            elements.append({"data": {"id": d["designer_id"], "label": d["name"],
-                                       "type": "Designer", "color": self.COLORS["Designer"]}})
-        for t in self.signoff_tasks:
-            label = t["task_id"].split("_")[-1] if "_" in t["task_id"] else t["task_id"]
-            elements.append({"data": {"id": t["task_id"], "label": label,
-                                       "type": "SignoffTask", "color": self.COLORS["SignoffTask"]}})
-        for j in self.signoff_jobs:
-            elements.append({"data": {"id": j["job_id"], "label": j["lsf_job_id"],
-                                       "type": "SignoffJob", "color": self.COLORS["SignoffJob"]}})
-        for res in self.results:
-            label = f"{res['waiver_progress_pct']}%"
-            elements.append({"data": {"id": res["result_id"], "label": label,
-                                       "type": "Result", "color": self.COLORS["Result"]}})
+            elements.append({
+                "data": {"id": p["product_id"], "label": p["product_id"], 
+                         "type": "Product", "layer": "Semantic",
+                         "color": self.COLORS["Product"]},
+                "classes": "product semantic"
+            })
         
-        # Edges
         for r in self.revisions:
-            elements.append({"data": {"source": r["product_id"], "target": r["revision_id"]}})
+            elements.append({
+                "data": {"id": r["revision_id"], "label": r["revision_code"],
+                         "type": "Revision", "layer": "Semantic",
+                         "color": self.COLORS["Revision"]},
+                "classes": "revision semantic"
+            })
+            elements.append({"data": {"source": r["product_id"], "target": r["revision_id"],
+                                      "label": "has_revision"}})
+        
         for b in self.blocks:
-            elements.append({"data": {"source": b["revision_id"], "target": b["block_id"]}})
-        for t in self.signoff_tasks:
-            elements.append({"data": {"source": t["block_id"], "target": t["task_id"]}})
-            elements.append({"data": {"source": t["task_id"], "target": t["app_id"]}})
+            elements.append({
+                "data": {"id": b["block_id"], "label": b["block_name"],
+                         "type": "Block", "layer": "Semantic",
+                         "color": self.COLORS["Block"]},
+                "classes": "block semantic"
+            })
+            elements.append({"data": {"source": b["revision_id"], "target": b["block_id"],
+                                      "label": "has_block"}})
+            if b.get("designer_id"):
+                elements.append({"data": {"source": b["block_id"], "target": b["designer_id"],
+                                          "label": "responsible_designer"}})
+        
+        for d in self.designers:
+            elements.append({
+                "data": {"id": d["designer_id"], "label": d["name"],
+                         "type": "Designer", "layer": "Semantic",
+                         "color": self.COLORS["Designer"]},
+                "classes": "designer semantic"
+            })
+        
+        for a in self.signoff_applications:
+            elements.append({
+                "data": {"id": a["app_id"], "label": a["app_id"],
+                         "type": "SignoffApplication", "layer": "Semantic",
+                         "color": self.COLORS["SignoffApplication"]},
+                "classes": "application semantic"
+            })
+        
+        for c in self.criteria_sets:
+            elements.append({
+                "data": {"id": c["criteria_id"], "label": c["criteria_id"],
+                         "type": "CriteriaSet", "layer": "Semantic",
+                         "color": self.COLORS["CriteriaSet"]},
+                "classes": "criteria semantic"
+            })
+        
         for j in self.signoff_jobs:
-            elements.append({"data": {"source": j["task_id"], "target": j["job_id"]}})
-        for res in self.results:
-            elements.append({"data": {"source": res["job_id"], "target": res["result_id"]}})
+            elements.append({
+                "data": {"id": j["job_id"], "label": f"{j['app_id']}",
+                         "type": "SignoffJob", "layer": "Kinetic",
+                         "color": self.COLORS["SignoffJob"]},
+                "classes": "job kinetic"
+            })
+            elements.append({"data": {"source": j["block_id"], "target": j["job_id"],
+                                      "label": "has_job"}})
+            elements.append({"data": {"source": j["job_id"], "target": j["app_id"],
+                                      "label": "uses_application"}})
+        
+        for r in self.results:
+            elements.append({
+                "data": {"id": r["result_id"], "label": f"{r['waiver_progress_pct']}%",
+                         "type": "Result", "layer": "Kinetic",
+                         "color": self.COLORS["Result"]},
+                "classes": "result kinetic"
+            })
+            elements.append({"data": {"source": r["job_id"], "target": r["result_id"],
+                                      "label": "produces"}})
+        
+        for cmp in self.compare_results:
+            elements.append({
+                "data": {"id": cmp["compare_id"], "label": "Compare",
+                         "type": "CompareResult", "layer": "Dynamic",
+                         "color": self.COLORS["CompareResult"]},
+                "classes": "compare dynamic"
+            })
         
         return elements
     
-    def get_all_objects(self) -> Dict[str, List[Dict]]:
+    def to_json_graphrag(self) -> Dict:
+        """GraphRAG/LLM용 JSON Export"""
+        return {
+            "meta": {
+                "version": "2.0",
+                "created_at": datetime.now().isoformat(),
+                "object_types": list(self.LAYERS.keys()),
+                "total_objects": sum([
+                    len(self.products), len(self.revisions), len(self.blocks),
+                    len(self.designers), len(self.signoff_applications), len(self.criteria_sets),
+                    len(self.workspaces), len(self.signoff_jobs), len(self.results),
+                    len(self.categorize_parts), len(self.compare_results),
+                    len(self.waiver_decisions), len(self.signoff_issues)
+                ])
+            },
+            "ontology": {
+                "products": self.products,
+                "revisions": self.revisions,
+                "blocks": self.blocks,
+                "designers": self.designers,
+                "applications": self.signoff_applications,
+                "criteria_sets": self.criteria_sets,
+                "workspaces": self.workspaces,
+                "jobs": self.signoff_jobs,
+                "results": self.results,
+                "categorize_parts": self.categorize_parts,
+                "compare_results": self.compare_results,
+                "waiver_decisions": self.waiver_decisions,
+                "issues": self.signoff_issues,
+            },
+            "statistics": self.get_statistics(),
+        }
+    
+    def get_object_schema(self) -> Dict:
+        """Object Type 스키마 정보 반환 (Schema Viewer용)"""
+        return {
+            "Product": {
+                "layer": "Semantic",
+                "color": self.COLORS["Product"],
+                "icon": self.ICONS["Product"],
+                "description": "메모리 제품의 최상위 개체 (HBM4E, DDR5 등)",
+                "properties": ["product_id", "product_name", "product_type", "technology_node", "status"],
+                "links": [("has_revision", "Revision", "1:N"), ("managed_by", "Designer", "N:M")]
+            },
+            "Revision": {
+                "layer": "Semantic",
+                "color": self.COLORS["Revision"],
+                "icon": self.ICONS["Revision"],
+                "description": "설계 버전 (R00~R60). Signoff 수행의 기준 단위",
+                "properties": ["revision_id", "revision_code", "design_stage", "status", "required_applications"],
+                "links": [("of_product", "Product", "N:1"), ("has_block", "Block", "1:N"), ("has_job", "SignoffJob", "1:N")]
+            },
+            "Block": {
+                "layer": "Semantic",
+                "color": self.COLORS["Block"],
+                "icon": self.ICONS["Block"],
+                "description": "회로 블록 (FULLCHIP, CORE, PHY 등). Signoff 대상 단위",
+                "properties": ["block_id", "block_name", "block_type", "hierarchy_path"],
+                "links": [("of_revision", "Revision", "N:1"), ("responsible_designer", "Designer", "N:1")]
+            },
+            "Designer": {
+                "layer": "Semantic",
+                "color": self.COLORS["Designer"],
+                "icon": self.ICONS["Designer"],
+                "description": "설계자, 검증 담당자, 개발자 등 모든 구성원",
+                "properties": ["designer_id", "name", "email", "team", "role"],
+                "links": [("responsible_for", "Block", "1:N"), ("executed_jobs", "SignoffJob", "1:N")]
+            },
+            "SignoffApplication": {
+                "layer": "Semantic",
+                "color": self.COLORS["SignoffApplication"],
+                "icon": self.ICONS["SignoffApplication"],
+                "description": "Signoff 검증 도구 (DSC, LSC, PEC 등 19종)",
+                "properties": ["app_id", "app_name", "app_group", "engine_type", "comparison_key"],
+                "links": [("has_criteria", "CriteriaSet", "1:N"), ("used_by_jobs", "SignoffJob", "1:N")]
+            },
+            "CriteriaSet": {
+                "layer": "Semantic",
+                "color": self.COLORS["CriteriaSet"],
+                "icon": self.ICONS["CriteriaSet"],
+                "description": "Application별 Pass/Fail 판정 기준 정의",
+                "properties": ["criteria_id", "app_id", "criteria_type", "version", "rules"],
+                "links": [("of_application", "SignoffApplication", "N:1")]
+            },
+            "Workspace": {
+                "layer": "Semantic",
+                "color": self.COLORS["Workspace"],
+                "icon": self.ICONS["Workspace"],
+                "description": "작업 공간 (Local/Central)",
+                "properties": ["workspace_id", "workspace_type", "base_path", "is_synced"],
+                "links": [("has_jobs", "SignoffJob", "1:N"), ("stores_results", "Result", "1:N")]
+            },
+            "SignoffJob": {
+                "layer": "Kinetic",
+                "color": self.COLORS["SignoffJob"],
+                "icon": self.ICONS["SignoffJob"],
+                "description": "실행 이벤트 (InputConfig 포함). 실제 Signoff 작업 단위",
+                "properties": ["job_id", "status", "pvt_corner", "netlist_path", "lsf_job_id", "runtime_seconds"],
+                "links": [("of_revision", "Revision", "N:1"), ("targets_block", "Block", "N:1"), 
+                          ("uses_application", "SignoffApplication", "N:1"), ("produces", "Result", "1:1")]
+            },
+            "Result": {
+                "layer": "Kinetic",
+                "color": self.COLORS["Result"],
+                "icon": self.ICONS["Result"],
+                "description": "검증 결과. Row 단위 통계 (WAIVER/FIXED/PENDING)",
+                "properties": ["result_id", "row_count", "waiver_count", "fixed_count", "waiver_progress_pct"],
+                "links": [("produced_by", "SignoffJob", "1:1"), ("has_comparison", "CompareResult", "1:N")]
+            },
+            "CategorizePart": {
+                "layer": "Dynamic",
+                "color": self.COLORS["CategorizePart"],
+                "icon": self.ICONS["CategorizePart"],
+                "description": "Result 분석 시 Part별 담당자 지정",
+                "properties": ["categorize_id", "category_name", "assigned_to", "row_count"],
+                "links": [("of_result", "Result", "N:1"), ("assigned_to", "Designer", "N:1")]
+            },
+            "CompareResult": {
+                "layer": "Dynamic",
+                "color": self.COLORS["CompareResult"],
+                "icon": self.ICONS["CompareResult"],
+                "description": "Revision 간 비교 결과. Waiver Migration 근거",
+                "properties": ["compare_id", "new_fail_count", "fixed_count", "regressed_count", "waiver_migrated_count"],
+                "links": [("source_result", "Result", "N:1"), ("target_result", "Result", "N:1")]
+            },
+            "WaiverDecision": {
+                "layer": "Dynamic",
+                "color": self.COLORS["WaiverDecision"],
+                "icon": self.ICONS["WaiverDecision"],
+                "description": "개별 항목에 대한 Waiver/Fixed 판단 이력",
+                "properties": ["decision_id", "decision_type", "reason", "decided_by"],
+                "links": [("of_result", "Result", "N:1")]
+            },
+            "SignoffIssue": {
+                "layer": "Dynamic",
+                "color": self.COLORS["SignoffIssue"],
+                "icon": self.ICONS["SignoffIssue"],
+                "description": "Signoff 과정에서 발생한 이슈/문의 이력",
+                "properties": ["issue_id", "title", "issue_type", "status", "reported_by"],
+                "links": [("related_to", "SignoffApplication", "N:1"), ("assigned_to", "Designer", "N:1")]
+            },
+        }
+    
+    def get_all_objects(self) -> Dict[str, List]:
         """모든 Object 반환"""
         return {
             "Product": self.products,
             "Revision": self.revisions,
             "Block": self.blocks,
-            "SignoffApplication": self.signoff_applications,
             "Designer": self.designers,
-            "SignoffTask": self.signoff_tasks,
-            "InputConfig": self.input_configs,
-            "SignoffJob": self.signoff_jobs,
+            "SignoffApplication": self.signoff_applications,
+            "CriteriaSet": self.criteria_sets,
             "Workspace": self.workspaces,
+            "SignoffJob": self.signoff_jobs,
             "Result": self.results,
+            "CategorizePart": self.categorize_parts,
+            "CompareResult": self.compare_results,
+            "WaiverDecision": self.waiver_decisions,
+            "SignoffIssue": self.signoff_issues,
         }
-    
-    # ========== Dropdown Options ==========
-    def get_product_options(self):
-        return [{"value": p["product_id"], "label": p["product_name"]} for p in self.products]
-    
-    def get_revision_options(self):
-        return [{"value": r["revision_id"], "label": f"{r['product_id']}/{r['revision_phase']}"} for r in self.revisions]
-    
-    def get_block_options(self):
-        return [{"value": b["block_id"], "label": b["block_name"]} for b in self.blocks]
-    
-    def get_app_options(self):
-        return [{"value": a["app_id"], "label": a["app_name"]} for a in self.signoff_applications]
-    
-    def get_designer_options(self):
-        return [{"value": d["designer_id"], "label": d["name"]} for d in self.designers]
-    
-    def get_task_options(self):
-        return [{"value": t["task_id"], "label": t["task_id"]} for t in self.signoff_tasks]
-    
-    def get_job_options(self):
-        return [{"value": j["job_id"], "label": j["job_id"]} for j in self.signoff_jobs]
 
 
-# Global instance
+# 글로벌 인스턴스
 store = SignoffOntologyStore()
